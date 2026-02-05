@@ -9,7 +9,7 @@ const SCOPES = [
 ];
 
 const TOKEN_PATH = path.join(__dirname, '../../tokens.json');
-const CREDENTIALS_PATH = path.join(__dirname, '../../credentials.json'); // User should place this
+const CREDENTIALS_PATH = path.join(__dirname, '../../credentials.json');
 
 async function loadCredentials() {
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
@@ -19,7 +19,6 @@ async function loadCredentials() {
             redirect_uri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/oauth2callback'
         };
     }
-    // Fallback to file 
     if (fs.existsSync(CREDENTIALS_PATH)) {
         const content = fs.readFileSync(CREDENTIALS_PATH);
         const keys = JSON.parse(content);
@@ -42,18 +41,17 @@ async function getAuthClient() {
     );
 
     if (process.env.GOOGLE_TOKENS) {
-        // Carrega do ambiente (Ideal para Railway/Cloud)
         oAuth2Client.setCredentials(JSON.parse(process.env.GOOGLE_TOKENS));
     } else if (fs.existsSync(TOKEN_PATH)) {
-        // Carrega do arquivo local
         const token = fs.readFileSync(TOKEN_PATH);
         oAuth2Client.setCredentials(JSON.parse(token));
     } else {
-        throw new Error('Token não encontrado. Execute o script de setup localmente e configure a variável GOOGLE_TOKENS.');
+        throw new Error('Token não encontrado.');
     }
-
     return oAuth2Client;
 }
+
+// --- CALENDAR ---
 
 async function createEvent(eventData) {
     const auth = await getAuthClient();
@@ -63,22 +61,19 @@ async function createEvent(eventData) {
         summary: eventData.summary,
         description: eventData.description,
         location: eventData.location,
-        start: {
-            dateTime: eventData.start,
-            timeZone: eventData.timezone || 'America/Sao_Paulo',
-        },
-        end: {
-            dateTime: eventData.end,
-            timeZone: eventData.timezone || 'America/Sao_Paulo',
-        },
-        reminders: {
-            useDefault: false,
-            overrides: [
-                { method: 'popup', minutes: 30 },
-            ],
-        },
+        start: { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' },
+        end: { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' },
+        reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] },
     };
 
+    if (eventData.attendees && Array.isArray(eventData.attendees)) {
+        resource.attendees = eventData.attendees.map(email => ({ email }));
+    }
+
+    if (eventData.recurrence) {
+        // Ex: 'RRULE:FREQ=WEEKLY;COUNT=10'
+        resource.recurrence = Array.isArray(eventData.recurrence) ? eventData.recurrence : [eventData.recurrence];
+    }
     if (eventData.online) {
         resource.conferenceData = {
             createRequest: {
@@ -93,64 +88,8 @@ async function createEvent(eventData) {
         resource: resource,
         conferenceDataVersion: 1,
     });
-
     return response.data;
 }
-
-async function createTask(taskData) {
-    const auth = await getAuthClient();
-    const tasks = google.tasks({ version: 'v1', auth });
-
-    const resource = {
-        title: taskData.title,
-        notes: taskData.notes,
-    };
-
-    if (taskData.due) {
-        // Google Tasks API expects RFC 3339 timestamp (T00:00:00.000Z) for due date (task only has Date, but API takes timestamp)
-        // Actually, for "due", it's usually YYYY-MM-DDT00:00:00.000Z
-        resource.due = taskData.due + 'T00:00:00.000Z';
-    }
-
-    const response = await tasks.tasks.insert({
-        tasklist: '@default',
-        resource: resource,
-    });
-
-    return response.data;
-}
-
-// Helper to generate Auth URL (exported for setup script)
-async function generateAuthUrl() {
-    const creds = await loadCredentials();
-    const oAuth2Client = new google.auth.OAuth2(
-        creds.client_id,
-        creds.client_secret,
-        creds.redirect_uri
-    );
-
-    return oAuth2Client.generateAuthUrl({
-        access_type: 'offline', // Critical for refresh token
-        scope: SCOPES,
-    });
-}
-
-// Helper to get token from code
-async function getTokenFromCode(code) {
-    const creds = await loadCredentials();
-    const oAuth2Client = new google.auth.OAuth2(
-        creds.client_id,
-        creds.client_secret,
-        creds.redirect_uri
-    );
-
-    const { tokens } = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(tokens);
-    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
-    console.log('Token armazenado em', TOKEN_PATH);
-    return tokens;
-}
-
 
 async function listEvents(timeMin, timeMax) {
     const auth = await getAuthClient();
@@ -163,31 +102,140 @@ async function listEvents(timeMin, timeMax) {
         singleEvents: true,
         orderBy: 'startTime',
     });
-
-    return response.data.items;
+    return response.data.items || [];
 }
 
-async function listTasks(timeMin, timeMax) {
+async function updateEvent(eventId, updates) {
+    const auth = await getAuthClient();
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    // First get the event to merge properties if necessary, but PATCH semantics usually handle this.
+    // However, for start/end, we need the full object structure.
+
+    const resource = {};
+    if (updates.summary) resource.summary = updates.summary;
+    if (updates.description) resource.description = updates.description;
+    if (updates.location) resource.location = updates.location;
+    if (updates.start) resource.start = { dateTime: updates.start, timeZone: 'America/Sao_Paulo' };
+    if (updates.end) resource.end = { dateTime: updates.end, timeZone: 'America/Sao_Paulo' };
+
+    const response = await calendar.events.patch({
+        calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
+        eventId: eventId,
+        resource: resource
+    });
+    return response.data;
+}
+
+async function deleteEvent(eventId) {
+    const auth = await getAuthClient();
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    await calendar.events.delete({
+        calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
+        eventId: eventId
+    });
+}
+
+// --- TASKS ---
+
+async function createTask(taskData) {
+    const auth = await getAuthClient();
+    const tasks = google.tasks({ version: 'v1', auth });
+
+    const resource = {
+        title: taskData.title,
+        notes: taskData.notes,
+    };
+    if (taskData.due) {
+        resource.due = taskData.due + 'T00:00:00.000Z';
+    }
+
+    const response = await tasks.tasks.insert({
+        tasklist: '@default',
+        resource: resource,
+    });
+    return response.data;
+}
+
+async function listTasks(timeMin, timeMax, showCompleted = false) {
     const auth = await getAuthClient();
     const service = google.tasks({ version: 'v1', auth });
 
-    // Google Tasks API filters are limited (showCompleted, dueMin, dueMax)
-    // dueMax needs RFC 3339 timestamp
-    const response = await service.tasks.list({
+    const params = {
         tasklist: '@default',
-        showCompleted: false,
-        dueMin: timeMin,
-        dueMax: timeMax,
-    });
+        showCompleted: showCompleted,
+    };
+    if (timeMin) params.dueMin = timeMin;
+    if (timeMax) params.dueMax = timeMax;
 
+    const response = await service.tasks.list(params);
     return response.data.items || [];
+}
+
+async function updateTask(taskId, updates) {
+    const auth = await getAuthClient();
+    const service = google.tasks({ version: 'v1', auth });
+
+    const resource = {};
+    if (updates.title) resource.title = updates.title;
+    if (updates.notes) resource.notes = updates.notes;
+    if (updates.due) resource.due = updates.due + 'T00:00:00.000Z';
+    if (updates.status) resource.status = updates.status;
+
+    const response = await service.tasks.patch({
+        tasklist: '@default',
+        task: taskId,
+        resource: resource
+    });
+    return response.data;
+}
+
+async function completeTask(taskId) {
+    return updateTask(taskId, { status: 'completed' });
+}
+
+async function deleteTask(taskId) {
+    const auth = await getAuthClient();
+    const service = google.tasks({ version: 'v1', auth });
+
+    await service.tasks.delete({
+        tasklist: '@default',
+        task: taskId
+    });
+}
+
+// --- HELPERS ---
+
+async function generateAuthUrl() {
+    const creds = await loadCredentials();
+    const oAuth2Client = new google.auth.OAuth2(
+        creds.client_id, creds.client_secret, creds.redirect_uri
+    );
+    return oAuth2Client.generateAuthUrl({ access_type: 'offline', scope: SCOPES });
+}
+
+async function getTokenFromCode(code) {
+    const creds = await loadCredentials();
+    const oAuth2Client = new google.auth.OAuth2(
+        creds.client_id, creds.client_secret, creds.redirect_uri
+    );
+    const { tokens } = await oAuth2Client.getToken(code);
+    oAuth2Client.setCredentials(tokens);
+    fs.writeFileSync(TOKEN_PATH, JSON.stringify(tokens));
+    return tokens;
 }
 
 module.exports = {
     createEvent,
-    createTask,
     listEvents,
+    updateEvent,
+    deleteEvent,
+    createTask,
     listTasks,
+    updateTask,
+    completeTask,
+    deleteTask,
     generateAuthUrl,
     getTokenFromCode
 };

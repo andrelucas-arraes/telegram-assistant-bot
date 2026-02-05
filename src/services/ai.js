@@ -5,65 +5,90 @@ const { DateTime } = require('luxon');
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// Using the specific model requested: gemini-2.5-flash
-// If it fails in 2026, user might need to adjust, but assuming it exists per context.
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 const PROMPT_PATH = path.join(__dirname, '../prompts/classifier.txt');
 
-async function interpretMessage(text) {
+// --- Simple In-Memory Session Storage ---
+// Format: { userId: [ { role: 'user', parts: [...] }, { role: 'model', parts: [...] } ] }
+const userSessions = {};
+
+const MAX_HISTORY_LENGTH = 10; // Keep last 10 turns (user + model) to save context window
+
+function getSystemPrompt() {
+    let promptTemplate = fs.readFileSync(PROMPT_PATH, 'utf-8');
+    const now = DateTime.now().setZone('America/Sao_Paulo');
+
+    return promptTemplate
+        .replace('{{CURRENT_DATE}}', now.toFormat('yyyy-MM-dd'))
+        .replace('{{CURRENT_WEEKDAY}}', now.setLocale('pt-BR').toFormat('cccc'))
+        .replace('{{CURRENT_YEAR}}', now.year.toString());
+}
+
+async function interpretMessage(text, userId) {
     try {
-        let promptTemplate = fs.readFileSync(PROMPT_PATH, 'utf-8');
+        const promptSystem = getSystemPrompt();
 
-        const now = DateTime.now().setZone('America/Sao_Paulo');
+        // Initialize history if new user
+        if (!userSessions[userId]) {
+            userSessions[userId] = [];
+        }
 
-        // Replace placeholders
-        const promptSystem = promptTemplate
-            .replace('{{CURRENT_DATE}}', now.toFormat('yyyy-MM-dd'))
-            .replace('{{CURRENT_WEEKDAY}}', now.setLocale('pt-BR').toFormat('cccc'))
-            .replace('{{CURRENT_YEAR}}', now.year.toString());
+        // Construct standard starting history with System Prompt
+        // Gemini API usually prefers System Instructions separately in newer versions, 
+        // but passing it as the first User message effectively sets the behavior.
+        // To maintain context, we append the specific user history after the system instruction.
 
-        // Construct the prompt for Gemini
-        // Gemini supports system instructions in newer models, or we can prepend it.
-        // For best compatibility/simplicity, we'll send it as part of the chat.
+        const history = [
+            {
+                role: "user",
+                parts: [{ text: promptSystem }],
+            },
+            {
+                role: "model",
+                parts: [{ text: "Entendido. Atuarei como seu assistente inteligente e responderei apenas com JSON." }],
+            }
+        ];
 
-        // Configura geração para JSON
+        // Append recent user history (avoiding duplicating system prompt logic)
+        // We only append the actual conversation turns, not previous system prompts.
+        history.push(...userSessions[userId]);
+
         const generationConfig = {
-            temperature: 0,
+            temperature: 0.2, // Slightly higher creative for chat, but still focused for JSON
             responseMimeType: "application/json",
         };
 
         const chat = model.startChat({
             generationConfig,
-            history: [
-                {
-                    role: "user",
-                    parts: [{ text: promptSystem }],
-                },
-                {
-                    role: "model",
-                    parts: [{ text: "Entendido. Enviarei apenas o JSON correpondente às suas mensagens." }],
-                }
-            ],
+            history: history,
         });
 
         const result = await chat.sendMessage(text);
         const responseText = result.response.text();
 
-        console.log("Raw Gemini Response:", responseText);
+        console.log(`[AI] Response for ${userId}:`, responseText);
 
-        // Clean up potential markdown blocks if the model adds them despite MIME type
+        // Update User History
+        // We save the USER message and the MODEL response
+        userSessions[userId].push(
+            { role: "user", parts: [{ text: text }] },
+            { role: "model", parts: [{ text: responseText }] }
+        );
+
+        // Prune history
+        if (userSessions[userId].length > MAX_HISTORY_LENGTH * 2) {
+            userSessions[userId] = userSessions[userId].slice(-(MAX_HISTORY_LENGTH * 2));
+        }
+
         const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-        const json = JSON.parse(cleanJson);
-        return json;
+        return JSON.parse(cleanJson);
 
     } catch (error) {
         console.error('Erro na AI (Gemini):', error);
-        // Fallback in case of AI failure
         return {
             tipo: 'neutro',
-            message: 'Desculpe, não consegui entender ou houve um erro técnico. Poderia repetir?'
+            message: 'Desculpe, tive um problema técnico. Tente novamente?'
         };
     }
 }

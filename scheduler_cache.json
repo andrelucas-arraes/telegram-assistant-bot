@@ -1,0 +1,19 @@
+{
+  "events": [],
+  "tasks": [
+    {
+      "kind": "tasks#task",
+      "id": "bVVIWWNpZE0wNFUtT1ZLTw",
+      "etag": "\"yMll47Jvjnc\"",
+      "title": "Processar manualmente: ola...",
+      "updated": "2026-02-03T19:03:44.619Z",
+      "selfLink": "https://www.googleapis.com/tasks/v1/lists/MTM3MjQ3ODcxODk0MTQ5NjU2NDk6MDow/tasks/bVVIWWNpZE0wNFUtT1ZLTw",
+      "position": "00000000000000000000",
+      "notes": "Erro ao processar com IA. Texto original: ola",
+      "status": "needsAction",
+      "links": [],
+      "webViewLink": "https://tasks.google.com/task/mUHYcidM04U-OVKO?sa=6"
+    }
+  ],
+  "lastUpdate": "2026-02-04T21:32:39.790-03:00"
+}
