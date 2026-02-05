@@ -39,6 +39,12 @@ Ações:
   - EXTRA: `checklist` (Array de Strings): "Com checklist: item A, item B".
 - `trello_list`: "Listar cards"
 - `trello_update`: "Mudar nome..."
+- `trello_move`: "Mover card X para a lista Y"
+  - `query` (Nome do card), `list` (Nome da lista destino).
+- `trello_add_label`: "Adicionar etiqueta 'Urgente' no card X"
+  - `query` (Card), `label` (Nome da etiqueta/cor).
+- `trello_add_member`: "Adicionar membro @joao no card X"
+  - `query` (Card), `member` (Nome do membro).
 - `trello_add_comment`: "Comentar no card X: 'feito'"
 - `trello_archive`: "Arquivar card X"
 

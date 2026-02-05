@@ -3,6 +3,7 @@ const fetch = global.fetch;
 const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
 const TRELLO_TOKEN = process.env.TRELLO_TOKEN;
 const TRELLO_LIST_INBOX = process.env.TRELLO_LIST_ID_INBOX;
+const TRELLO_BOARD_ID = process.env.TRELLO_BOARD_ID;
 
 const BASE_URL = 'https://api.trello.com/1';
 
@@ -11,6 +12,42 @@ function getAuthParams() {
         throw new Error('Trello API Key ou Token não configurados no .env');
     }
     return `key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}`;
+}
+
+async function getLists(boardId = TRELLO_BOARD_ID) {
+    if (!boardId) throw new Error('TRELLO_BOARD_ID required (env or param)');
+    const url = `${BASE_URL}/boards/${boardId}/lists?${getAuthParams()}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    return await response.json();
+}
+
+async function getLabels(boardId = TRELLO_BOARD_ID) {
+    if (!boardId) throw new Error('TRELLO_BOARD_ID required');
+    const url = `${BASE_URL}/boards/${boardId}/labels?${getAuthParams()}`;
+    const response = await fetch(url);
+    return await response.json();
+}
+
+async function getMembers(boardId = TRELLO_BOARD_ID) {
+    if (!boardId) throw new Error('TRELLO_BOARD_ID required');
+    const url = `${BASE_URL}/boards/${boardId}/members?${getAuthParams()}`;
+    const response = await fetch(url);
+    return await response.json();
+}
+
+async function addLabel(cardId, labelId) {
+    const url = `${BASE_URL}/cards/${cardId}/idLabels?value=${labelId}&${getAuthParams()}`;
+    const response = await fetch(url, { method: 'POST' });
+    if (!response.ok) throw new Error(await response.text());
+    return await response.json();
+}
+
+async function addMember(cardId, memberId) {
+    const url = `${BASE_URL}/cards/${cardId}/idMembers?value=${memberId}&${getAuthParams()}`;
+    const response = await fetch(url, { method: 'POST' });
+    if (!response.ok) throw new Error(await response.text());
+    return await response.json();
 }
 
 async function createCard({ name, desc, due, labels, members }) {
@@ -92,4 +129,4 @@ async function addChecklist(cardId, name, items = []) {
     return checklist;
 }
 
-module.exports = { createCard, listCards, updateCard, addComment, addChecklist };
+module.exports = { createCard, listCards, updateCard, addComment, addChecklist, getLists, getLabels, getMembers, addLabel, addMember };

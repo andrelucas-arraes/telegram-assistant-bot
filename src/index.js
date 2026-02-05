@@ -175,9 +175,61 @@ bot.on('text', async (ctx) => {
                 await trelloService.addChecklist(card.id, 'Checklist', intent.checklist);
             }
             await ctx.reply(`✅ *Card Criado:* [${card.name}](${card.shortUrl})`, { parse_mode: 'Markdown' });
+
+        } else if (intent.tipo === 'trello_move') {
+            const card = await findTrelloCardByQuery(intent.query);
+            if (!card) return ctx.reply('⚠️ Card não encontrado.');
+
+            if (!intent.list) return ctx.reply('⚠️ Preciso saber para qual lista mover (Ex: "Mover para Feito").');
+
+            // Find Target List
+            const lists = await trelloService.getLists();
+            const targetList = lists.find(l => l.name.toLowerCase().includes(intent.list.toLowerCase()));
+
+            if (!targetList) {
+                const listNames = lists.map(l => l.name).join(', ');
+                return ctx.reply(`⚠️ Lista "${intent.list}" não encontrada.\n📋 Listas disponíveis: ${listNames}`);
+            }
+
+            await trelloService.updateCard(card.id, { idList: targetList.id });
+            await ctx.reply(`✅ Card "${card.name}" movido para *${targetList.name}*!`, { parse_mode: 'Markdown' });
+
+        } else if (intent.tipo === 'trello_add_label') {
+            const card = await findTrelloCardByQuery(intent.query);
+            if (!card) return ctx.reply('⚠️ Card não encontrado.');
+
+            const labels = await trelloService.getLabels();
+            const targetLabel = labels.find(l =>
+                (l.name && l.name.toLowerCase() === intent.label.toLowerCase()) ||
+                (l.color && l.color.toLowerCase() === intent.label.toLowerCase())
+            );
+
+            if (!targetLabel) {
+                const available = labels.map(l => l.name || l.color).join(', ');
+                return ctx.reply(`⚠️ Etiqueta "${intent.label}" não encontrada.\n🏷️ Disponíveis: ${available}`);
+            }
+
+            await trelloService.addLabel(card.id, targetLabel.id);
+            await ctx.reply(`✅ Etiqueta *${targetLabel.name || targetLabel.color}* adicionada ao card "${card.name}"`, { parse_mode: 'Markdown' });
+
+        } else if (intent.tipo === 'trello_add_member') {
+            const card = await findTrelloCardByQuery(intent.query);
+            if (!card) return ctx.reply('⚠️ Card não encontrado.');
+
+            const members = await trelloService.getMembers();
+            const targetMember = members.find(m =>
+                m.fullName.toLowerCase().includes(intent.member.toLowerCase()) ||
+                m.username.toLowerCase().includes(intent.member.toLowerCase())
+            );
+
+            if (!targetMember) {
+                return ctx.reply(`⚠️ Membro "${intent.member}" não encontrado.`);
+            }
+
+            await trelloService.addMember(card.id, targetMember.id);
+            await ctx.reply(`✅ Membro *${targetMember.fullName}* adicionado ao card "${card.name}"`, { parse_mode: 'Markdown' });
+
         } else {
-            // Se for trello_move, precisa de lógica extra para achar List ID pelo nome, 
-            // simplificaremos aqui ou tratamos como chat se complexo.
             await ctx.reply(intent.message || 'Olá! Posso ajudar com Agenda, Tarefas e Trello.', { parse_mode: 'Markdown' });
         }
 
