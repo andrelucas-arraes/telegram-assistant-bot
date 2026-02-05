@@ -91,6 +91,14 @@ bot.on('text', async (ctx) => {
             await googleService.updateEvent(event.id, intent);
             await ctx.reply(`✅ Evento "${event.summary}" atualizado!`);
 
+        } else if (intent.tipo === 'complete_event') {
+            const event = await findEventByQuery(intent.query);
+            if (!event) return ctx.reply(`⚠️ Não encontrei evento com "${intent.query}".`);
+
+            const newSummary = event.summary.startsWith('✅') ? event.summary : `✅ ${event.summary}`;
+            await googleService.updateEvent(event.id, { summary: newSummary, colorId: '8' }); // 8 = Grey
+            await ctx.reply(`✅ Evento "${event.summary}" marcado como concluído!`);
+
         } else if (intent.tipo === 'delete_event') {
             const event = await findEventByQuery(intent.query);
             if (!event) return ctx.reply(`⚠️ Não encontrei evento com "${intent.query}".`);
@@ -179,7 +187,13 @@ bot.on('text', async (ctx) => {
     }
 });
 
-bot.catch((err) => console.log('Bot Error', err));
+bot.catch((err) => {
+    if (err && err.response && err.response.error_code === 409) {
+        console.warn('⚠️  CONFLITO: Outra instância iniciou. Encerrando esta...');
+        process.exit(0);
+    }
+    console.error('❌ Bot Error:', err);
+});
 bot.launch();
 console.log('🤖 Bot Supremo Iniciado...');
 

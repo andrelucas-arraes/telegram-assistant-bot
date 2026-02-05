@@ -18,6 +18,7 @@ Ações:
   - EXTRA: `recurrence` (Array de Strings RRULE): "Repetir toda semana" -> ["RRULE:FREQ=WEEKLY"].
 - `list_events`: "O que tenho hoje?"
 - `update_event`: "Mudar a reunião das 14h..."
+- `complete_event`: "Marcar reunião como feita/concluída" (Adiciona ✅ no título)
 - `delete_event`: "Cancelar a reunião..."
 
 ========================

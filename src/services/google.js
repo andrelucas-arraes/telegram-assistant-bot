@@ -118,6 +118,7 @@ async function updateEvent(eventId, updates) {
     if (updates.location) resource.location = updates.location;
     if (updates.start) resource.start = { dateTime: updates.start, timeZone: 'America/Sao_Paulo' };
     if (updates.end) resource.end = { dateTime: updates.end, timeZone: 'America/Sao_Paulo' };
+    if (updates.colorId) resource.colorId = updates.colorId;
 
     const response = await calendar.events.patch({
         calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
