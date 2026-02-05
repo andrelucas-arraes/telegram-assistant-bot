@@ -113,10 +113,19 @@ bot.on('text', async (ctx) => {
             await ctx.reply(`✅ *Tarefa criada:* ${intent.title}`, { parse_mode: 'Markdown' });
 
         } else if (intent.tipo === 'list_tasks') {
-            const tasks = await googleService.listTasks();
-            if (tasks.length === 0) return ctx.reply('✅ Tudo feito!');
-            let msg = '*Tarefas:*\n';
-            tasks.forEach(t => msg += `▫️ [${t.taskListName}] ${t.title}\n`);
+            const groups = await googleService.listTasksGrouped();
+            if (groups.length === 0) return ctx.reply('✅ Nenhuma lista de tarefas encontrada.');
+
+            let msg = '';
+            groups.forEach(group => {
+                msg += `📁 *${group.title}*\n`;
+                if (group.tasks.length === 0) {
+                    msg += `   _(vazia)_\n`;
+                } else {
+                    group.tasks.forEach(t => msg += `   ▫️ ${t.title}\n`);
+                }
+                msg += '\n';
+            });
             await ctx.reply(msg, { parse_mode: 'Markdown' });
 
         } else if (intent.tipo === 'update_task') {

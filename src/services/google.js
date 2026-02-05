@@ -149,7 +149,13 @@ async function createTask(taskData, taskListId = '@default') {
         notes: taskData.notes,
     };
     if (taskData.due) {
-        resource.due = taskData.due + 'T00:00:00.000Z';
+        // If it looks like a full DateTime (has 'T'), just append Z if missing
+        if (taskData.due.includes('T')) {
+            resource.due = taskData.due.endsWith('Z') ? taskData.due : taskData.due + 'Z';
+        } else {
+            // Assume it's just a date YYYY-MM-DD
+            resource.due = taskData.due + 'T00:00:00.000Z';
+        }
     }
 
     const response = await tasks.tasks.insert({
@@ -160,42 +166,9 @@ async function createTask(taskData, taskListId = '@default') {
 }
 
 async function listTasks(timeMin, timeMax, showCompleted = false) {
-    const auth = await getAuthClient();
-    const service = google.tasks({ version: 'v1', auth });
-
-    try {
-        // 1. Get all task lists
-        const listsResponse = await service.tasklists.list();
-        const taskLists = listsResponse.data.items || [];
-
-        let allTasks = [];
-
-        // 2. Iterate and fetch tasks
-        for (const list of taskLists) {
-            const params = {
-                tasklist: list.id,
-                showCompleted: showCompleted,
-            };
-            if (timeMin) params.dueMin = timeMin;
-            if (timeMax) params.dueMax = timeMax;
-
-            const res = await service.tasks.list(params);
-            const items = res.data.items || [];
-
-            // 3. Enrich task with list info
-            items.forEach(t => {
-                t.taskListId = list.id;
-                t.taskListName = list.title;
-            });
-
-            allTasks = allTasks.concat(items);
-        }
-        return allTasks;
-
-    } catch (error) {
-        console.error('Error listing tasks:', error);
-        return [];
-    }
+    const grouped = await listTasksGrouped(timeMin, timeMax, showCompleted);
+    // Flatten
+    return grouped.reduce((acc, group) => acc.concat(group.tasks), []);
 }
 
 async function updateTask(taskId, updates, taskListId = '@default') {
@@ -251,6 +224,46 @@ async function getTokenFromCode(code) {
     return tokens;
 }
 
+async function listTasksGrouped(timeMin, timeMax, showCompleted = false) {
+    const auth = await getAuthClient();
+    const service = google.tasks({ version: 'v1', auth });
+
+    try {
+        const listsResponse = await service.tasklists.list();
+        const taskLists = listsResponse.data.items || [];
+
+        const result = [];
+
+        for (const list of taskLists) {
+            const params = {
+                tasklist: list.id,
+                showCompleted: showCompleted,
+            };
+            if (timeMin) params.dueMin = timeMin;
+            if (timeMax) params.dueMax = timeMax;
+
+            const res = await service.tasks.list(params);
+            const items = res.data.items || [];
+
+            // Enrich items with list info just in case
+            items.forEach(t => {
+                t.taskListId = list.id;
+                t.taskListName = list.title;
+            });
+
+            result.push({
+                id: list.id,
+                title: list.title,
+                tasks: items
+            });
+        }
+        return result;
+    } catch (error) {
+        console.error('Error listing tasks:', error);
+        return [];
+    }
+}
+
 module.exports = {
     createEvent,
     listEvents,
@@ -258,6 +271,7 @@ module.exports = {
     deleteEvent,
     createTask,
     listTasks,
+    listTasksGrouped,
     updateTask,
     completeTask,
     deleteTask,
