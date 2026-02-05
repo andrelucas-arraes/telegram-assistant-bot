@@ -84,6 +84,48 @@ async function listCards(listId = TRELLO_LIST_INBOX) {
     return await response.json();
 }
 
+async function listAllCards() {
+    const lists = await getLists();
+    let allCards = [];
+
+    // Fetch cards for each list in parallel
+    const promises = lists.map(async (list) => {
+        try {
+            const cards = await listCards(list.id);
+            return cards.map(c => ({ ...c, listName: list.name }));
+        } catch (e) {
+            console.error(`Error fetching cards from list ${list.name}:`, e);
+            return [];
+        }
+    });
+
+    const results = await Promise.all(promises);
+    results.forEach(cards => allCards = allCards.concat(cards));
+
+    return allCards;
+}
+
+async function listAllCardsGrouped() {
+    const lists = await getLists();
+    const result = [];
+
+    for (const list of lists) {
+        try {
+            const cards = await listCards(list.id);
+            result.push({
+                id: list.id,
+                name: list.name,
+                cards: cards
+            });
+        } catch (e) {
+            console.error(`Error fetching cards for list ${list.name}:`, e);
+        }
+    }
+    return result;
+}
+
+module.exports = { createCard, listCards, listAllCards, listAllCardsGrouped, updateCard, addComment, addChecklist, getLists, getLabels, getMembers, addLabel, addMember };
+
 async function updateCard(cardId, updates) {
     const params = new URLSearchParams({
         key: TRELLO_API_KEY,
@@ -128,4 +170,4 @@ async function addChecklist(cardId, name, items = []) {
     return checklist;
 }
 
-module.exports = { createCard, listCards, updateCard, addComment, addChecklist, getLists, getLabels, getMembers, addLabel, addMember };
+

@@ -153,10 +153,21 @@ bot.on('text', async (ctx) => {
             await ctx.reply(`✅ *Card Trello:* [${card.name}](${card.shortUrl})`, { parse_mode: 'Markdown' });
 
         } else if (intent.tipo === 'trello_list') {
-            const cards = await trelloService.listCards();
-            if (cards.length === 0) return ctx.reply('🗂️ Lista vazia.');
-            let msg = '*Cards Trello:*\n';
-            cards.forEach(c => msg += `📌 [${c.name}](${c.shortUrl})\n`);
+            const groups = await trelloService.listAllCardsGrouped();
+
+            if (groups.length === 0) return ctx.reply('🗂️ Nenhuma lista encontrada no Trello.');
+
+            let msg = '*Quadro Trello:*\n\n';
+            groups.forEach(group => {
+                msg += `📁 *${group.name}*\n`;
+                if (group.cards.length === 0) {
+                    msg += `   _(vazia)_\n`;
+                } else {
+                    group.cards.forEach(c => msg += `   📌 [${c.name}](${c.shortUrl})\n`);
+                }
+                msg += '\n';
+            });
+
             await ctx.reply(msg, { parse_mode: 'Markdown', disable_web_page_preview: true });
 
         } else if (intent.tipo === 'trello_update') {
