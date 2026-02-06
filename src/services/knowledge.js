@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { log } = require('../utils/logger');
 const Fuse = require('fuse.js');
+const config = require('../config');
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '../../data');
 const KNOWLEDGE_FILE = path.join(DATA_DIR, 'knowledge.json');
@@ -44,9 +45,47 @@ function loadKnowledge() {
 function saveKnowledge() {
     try {
         knowledgeBase.lastUpdated = new Date().toISOString();
-        fs.writeFileSync(KNOWLEDGE_FILE, JSON.stringify(knowledgeBase, null, 2));
+        const data = JSON.stringify(knowledgeBase, null, 2);
+
+        // Valida JSON antes de salvar (evita corrupção)
+        try {
+            JSON.parse(data);
+        } catch (parseError) {
+            log.error('CRÍTICO: JSON inválido, abortando save', { error: parseError.message });
+            return;
+        }
+
+        // Faz backup do arquivo anterior se existir
+        if (fs.existsSync(KNOWLEDGE_FILE)) {
+            const backupFile = KNOWLEDGE_FILE.replace('.json', `.backup_${Date.now()}.json`);
+            try {
+                fs.copyFileSync(KNOWLEDGE_FILE, backupFile);
+
+                // Mantém apenas os backups configurados
+                const backupDir = path.dirname(KNOWLEDGE_FILE);
+                const backups = fs.readdirSync(backupDir)
+                    .filter(f => f.startsWith('knowledge.backup_') && f.endsWith('.json'))
+                    .sort()
+                    .reverse();
+
+                // Remove backups antigos (mantém conforme config)
+                backups.slice(config.knowledge.maxBackups).forEach(f => {
+                    try {
+                        fs.unlinkSync(path.join(backupDir, f));
+                    } catch (e) {
+                        // Ignora erro ao deletar backup antigo
+                    }
+                });
+            } catch (backupError) {
+                log.warn('Falha ao criar backup', { error: backupError.message });
+                // Continua salvando mesmo sem backup
+            }
+        }
+
+        // Salva o arquivo
+        fs.writeFileSync(KNOWLEDGE_FILE, data);
     } catch (e) {
-        log.error('Erro ao salvar Knowledge Base', { error: e.message });
+        log.error('CRÍTICO: Erro ao salvar Knowledge Base', { error: e.message });
     }
 }
 
@@ -109,7 +148,7 @@ function queryInfo(query) {
             { name: 'tags', weight: 0.2 },
             { name: 'category', weight: 0.1 }
         ],
-        threshold: 0.4,
+        threshold: config.knowledge.fuzzyThreshold,
         includeScore: true
     });
 

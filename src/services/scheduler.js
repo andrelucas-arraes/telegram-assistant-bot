@@ -6,6 +6,7 @@ const { log } = require('../utils/logger');
 const { formatFriendlyDate, getEventStatusEmoji } = require('../utils/dateFormatter');
 const fs = require('fs');
 const path = require('path');
+const config = require('../config');
 
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '../../data');
 
@@ -27,6 +28,29 @@ let memoryCache = {
     trelloCards: [],
     lastUpdate: null
 };
+
+const CACHE_TTL = config.cache.ttlMs;
+
+/**
+ * Verifica se o cache está desatualizado
+ */
+function isCacheStale() {
+    if (!memoryCache.lastUpdate) return true;
+    const age = Date.now() - DateTime.fromISO(memoryCache.lastUpdate).toMillis();
+    return age > CACHE_TTL;
+}
+
+/**
+ * Retorna os dados do cache
+ * Se o cache estiver stale (TTL expirado), atualiza antes de retornar
+ */
+async function getData() {
+    if (isCacheStale()) {
+        log.scheduler('Cache stale via getData, atualizando...');
+        await refreshDataCache();
+    }
+    return memoryCache;
+}
 
 // Cache para evitar notificações duplicadas
 const notifiedEvents = new Set();
@@ -54,10 +78,10 @@ function loadCacheFromDisk() {
                 cards: memoryCache.trelloCards.length
             });
 
-            // Verifica se está muito velho (ex: mais de 2 horas)
+            // Verifica se está muito velho (ex: baseado no config)
             const lastUpdate = DateTime.fromISO(memoryCache.lastUpdate);
             const diff = DateTime.now().diff(lastUpdate, 'hours').hours;
-            if (diff > 2) {
+            if (diff > config.cache.staleThresholdHours) {
                 log.scheduler('Cache antigo, forçando atualização');
                 refreshDataCache();
             }
@@ -156,9 +180,10 @@ function initScheduler(bot) {
     }
 
     // ============================================
-    // CRON 1: ATUALIZADOR DE CACHE (A cada 1 HORA)
+    // CRON 1: ATUALIZADOR DE CACHE (Duração baseada no config)
     // ============================================
-    cron.schedule('0 * * * *', () => {
+    const refreshInterval = config.cache.refreshIntervalMs === 3600000 ? '0 * * * *' : '* * * * *';
+    cron.schedule(refreshInterval, () => {
         refreshDataCache();
     });
 
@@ -363,9 +388,9 @@ function initScheduler(bot) {
             const startTime = DateTime.fromISO(event.start.dateTime).setZone('America/Sao_Paulo');
             const diffMinutes = startTime.diff(now, 'minutes').minutes;
 
-            if (diffMinutes >= 14 && diffMinutes <= 15.5 && !notifiedEvents.has(event.id)) {
+            if (diffMinutes >= (config.scheduler.reminderMinutes - 1) && diffMinutes <= (config.scheduler.reminderMinutes + 0.5) && !notifiedEvents.has(event.id)) {
                 const emoji = getEventStatusEmoji(event);
-                const msg = `🔔 *Daqui a 15 min:*\n${emoji} ${event.summary}`;
+                const msg = `🔔 *Daqui a ${config.scheduler.reminderMinutes} min:*\n${emoji} ${event.summary}`;
                 const kb = event.hangoutLink
                     ? { inline_keyboard: [[{ text: "📹 Entrar", url: event.hangoutLink }]] }
                     : undefined;
@@ -382,5 +407,6 @@ function initScheduler(bot) {
 module.exports = {
     initScheduler,
     refreshEventsCache: refreshDataCache,
-    invalidateCache
+    invalidateCache,
+    getData
 };

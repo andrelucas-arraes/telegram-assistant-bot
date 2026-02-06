@@ -87,12 +87,21 @@ class RateLimiter {
 
     /**
      * Remove entradas antigas para liberar memória
+     * Inclui limpeza de usuários inativos por mais de 7 dias
      */
     cleanup() {
         const now = Date.now();
+        const INACTIVE_THRESHOLD = 7 * 24 * 60 * 60 * 1000; // 7 dias em ms
+
         for (const [userId, userData] of this.users.entries()) {
-            // Remove se não tem requests recentes e não está bloqueado
-            if (userData.requests.length === 0 && userData.blockedUntil < now) {
+            // Verifica última requisição
+            const lastRequest = userData.requests[userData.requests.length - 1] || 0;
+            const isInactive = (now - lastRequest) > INACTIVE_THRESHOLD;
+
+            // Remove se:
+            // 1. Não tem requests recentes E não está bloqueado
+            // 2. OU está inativo por mais de 7 dias E não está bloqueado
+            if ((userData.requests.length === 0 || isInactive) && userData.blockedUntil < now) {
                 this.users.delete(userId);
             }
         }
@@ -113,11 +122,13 @@ class RateLimiter {
     }
 }
 
-// Instância singleton com configuração padrão
+// Instância singleton com configuração do arquivo config.js
+const config = require('../config');
+
 const rateLimiter = new RateLimiter({
-    maxRequests: 10,      // 10 mensagens
-    windowMs: 60000,      // por minuto
-    blockDurationMs: 30000 // bloqueia por 30s se exceder
+    maxRequests: config.rateLimiter.maxRequests,
+    windowMs: config.rateLimiter.windowMs,
+    blockDurationMs: config.rateLimiter.blockDurationMs
 });
 
 module.exports = { RateLimiter, rateLimiter };

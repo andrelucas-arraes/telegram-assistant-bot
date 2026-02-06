@@ -1,5 +1,6 @@
 require('dotenv').config();
-const { Telegraf, Markup, session } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
+const LocalSession = require('telegraf-session-local');
 const { interpretMessage } = require('./services/ai');
 const googleService = require('./services/google');
 const trelloService = require('./services/trello');
@@ -14,11 +15,17 @@ const { findEventFuzzy, findTaskFuzzy, findTrelloCardFuzzy, findTrelloListFuzzy 
 const { getEventSuggestions, getTaskSuggestions, getTrelloSuggestions, getConflictButtons } = require('./utils/suggestions');
 const actionHistory = require('./utils/actionHistory');
 const confirmation = require('./utils/confirmation');
+const { batchProcess } = require('./utils/batchProcessor');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// Middleware de sessão (necessário para Smart Scheduling e KB updates)
-bot.use(session());
+// Middleware de sessão persistente (salva em data/sessions.json)
+const localSession = new LocalSession({
+    database: 'data/sessions.json',
+    property: 'session',
+    storage: LocalSession.storagefileAsync
+});
+bot.use(localSession.middleware());
 
 // Init scheduler
 scheduler.initScheduler(bot);
@@ -399,10 +406,13 @@ async function executeConfirmedAction(ctx, pending) {
     switch (pending.actionType) {
         case 'complete_all_events':
             const events = pending.items;
-            const promises = events.map(e =>
-                googleService.updateEvent(e.id, { summary: `✅ ${e.summary}`, colorId: '8' })
+            // Usa batchProcess para evitar rate limit da API Google Calendar
+            await batchProcess(
+                events,
+                e => googleService.updateEvent(e.id, { summary: `✅ ${e.summary}`, colorId: '8' }),
+                10,
+                1000
             );
-            await Promise.all(promises);
             scheduler.invalidateCache('events');
             actionHistory.recordAction(userId, pending.actionType, { count: events.length }, { eventIds: events.map(e => e.id) });
             await ctx.editMessageText(`✅ ${events.length} eventos marcados como concluídos!`);
@@ -410,10 +420,13 @@ async function executeConfirmedAction(ctx, pending) {
 
         case 'complete_all_tasks':
             const tasks = pending.items;
-            const taskPromises = tasks.map(t =>
-                googleService.completeTask(t.id, t.taskListId || '@default')
+            // Usa batchProcess para evitar rate limit da API Google Tasks
+            await batchProcess(
+                tasks,
+                t => googleService.completeTask(t.id, t.taskListId || '@default'),
+                10,  // 10 tarefas por batch
+                1000 // 1 segundo de delay entre batches
             );
-            await Promise.all(taskPromises);
             scheduler.invalidateCache('tasks');
             actionHistory.recordAction(userId, pending.actionType, { count: tasks.length }, { taskIds: tasks.map(t => t.id) });
             await ctx.editMessageText(`✅ ${tasks.length} tarefas marcadas como concluídas!`);
@@ -421,10 +434,13 @@ async function executeConfirmedAction(ctx, pending) {
 
         case 'complete_tasklist':
             const listTasks = pending.items;
-            const listPromises = listTasks.map(t =>
-                googleService.completeTask(t.id, pending.data.listId)
+            // Usa batchProcess para evitar rate limit
+            await batchProcess(
+                listTasks,
+                t => googleService.completeTask(t.id, pending.data.listId),
+                10,
+                1000
             );
-            await Promise.all(listPromises);
             scheduler.invalidateCache('tasks');
             actionHistory.recordAction(userId, pending.actionType, { listName: pending.data.listName, count: listTasks.length }, { taskIds: listTasks.map(t => t.id) });
             await ctx.editMessageText(`✅ Todas as ${listTasks.length} tarefas da lista "${pending.data.listName}" foram concluídas!`);
@@ -817,9 +833,16 @@ bot.action(/suggest_task_notes:(.+)/, async (ctx) => {
     const taskId = ctx.match[1];
     await ctx.answerCbQuery();
 
+    // Busca tarefa para pegar o listId se possível (ou assume default se não achar)
+    const task = await googleService.getTask(taskId).catch(() => ({}));
+
     // Armazena ID para update
     ctx.session = ctx.session || {};
-    ctx.session.pendingTaskUpdate = { id: taskId, field: 'notes' };
+    ctx.session.pendingTaskUpdate = {
+        id: taskId,
+        field: 'notes',
+        taskListId: task.taskListId || '@default'
+    };
 
     await ctx.editMessageText('📝 Digite a nota que deseja adicionar à tarefa:');
 });
@@ -829,9 +852,15 @@ bot.action(/suggest_task_due:(.+)/, async (ctx) => {
     const taskId = ctx.match[1];
     await ctx.answerCbQuery();
 
+    const task = await googleService.getTask(taskId).catch(() => ({}));
+
     // Armazena ID para update
     ctx.session = ctx.session || {};
-    ctx.session.pendingTaskUpdate = { id: taskId, field: 'due' };
+    ctx.session.pendingTaskUpdate = {
+        id: taskId,
+        field: 'due',
+        taskListId: task.taskListId || '@default'
+    };
 
     await ctx.editMessageText('📅 Digite o prazo da tarefa (ex: "hoje", "amanhã", "sexta"):');
 });
@@ -1153,7 +1182,7 @@ bot.on('text', async (ctx) => {
             // Vamos assumir que o usuário digite algo razoável ou que o serviço suporte. 
             // O googleService.updateTask trata 'due' convertendo para timestamp se for ISO.
 
-            await googleService.updateTask(id, '@default', updates); // Assume default list por enquanto ou precisamos salvar listId na sessão
+            await googleService.updateTask(id, ctx.session.pendingTaskUpdate.taskListId || '@default', updates);
             scheduler.invalidateCache('tasks');
 
             const fieldName = field === 'notes' ? 'Notas' : 'Prazo';
@@ -1265,12 +1294,19 @@ bot.on('text', async (ctx) => {
         log.bot('Mensagem recebida', { userId, text: text.substring(0, 50) });
 
         await ctx.sendChatAction('typing');
-        const intentResult = await interpretMessage(text, userId, getUserContext(userId));
+        let intentResult = await interpretMessage(text, userId, getUserContext(userId));
 
-        log.bot('Intenção detectada', {
-            userId,
-            tipo: Array.isArray(intentResult) ? intentResult.map(i => i.tipo) : intentResult.tipo
-        });
+        // Fallback de segurança: Se o usuário disse "amanhã" e a IA não pegou a data
+        if (text.toLowerCase().includes('amanhã')) {
+            const tomorrowStr = DateTime.now().setZone('America/Sao_Paulo').plus({ days: 1 }).toFormat('yyyy-MM-dd');
+            if (Array.isArray(intentResult)) {
+                intentResult.forEach(i => { if (!i.target_date) i.target_date = tomorrowStr; });
+            } else if (intentResult && !intentResult.target_date) {
+                intentResult.target_date = tomorrowStr;
+            }
+        }
+
+        log.bot('Intenção detalhada', { userId, intent: JSON.stringify(intentResult) });
 
         const intents = Array.isArray(intentResult) ? intentResult : [intentResult];
 
@@ -1278,16 +1314,18 @@ bot.on('text', async (ctx) => {
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id).catch(() => { });
 
         for (const intent of intents) {
-            await processIntent(ctx, intent);
+            try {
+                await processIntent(ctx, intent);
+            } catch (intentError) {
+                log.error('Erro ao processar intenção específica', { error: intentError.message, intent: intent.tipo });
+                await ctx.reply(`⚠️ Tive um problema ao processar: ${intent.tipo}. Mas o resto pode ter funcionado.`);
+            }
         }
 
     } catch (error) {
-        log.apiError('Bot', error, { userId, text: text.substring(0, 50) });
-
-        // Deleta mensagem de processamento
+        log.apiError('Bot Main Loop', error, { userId, text: text.substring(0, 50) });
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id).catch(() => { });
-
-        await ctx.reply(`❌ Erro: ${error.message}`);
+        await ctx.reply(`❌ Erro técnico: ${error.message}. Tente reformular o pedido.`);
     }
 });
 
@@ -1490,30 +1528,34 @@ async function processIntent(ctx, intent) {
         // ============================================
     } else if (intent.tipo === 'create_task' || intent.tipo === 'tarefa') {
         const intentData = { ...intent };
+        let targetListId = '@default';
 
-        // Se for uma subtarefa, precisa achar o ID da tarefa pai
-        if (intent.parent_query) {
+        // 1. Prioridade: Lista especificada (ex: "na lista Simões")
+        if (intent.list_query) {
+            const groups = await googleService.listTasksGrouped();
+            const list = groups.find(g => g.title.toLowerCase().includes(intent.list_query.toLowerCase()));
+            if (list) {
+                targetListId = list.id;
+                log.bot('Usando lista especificada', { listName: list.title });
+            } else {
+                await ctx.reply(`⚠️ Lista "${intent.list_query}" não encontrada. Criando na lista padrão.`);
+            }
+        }
+        // 2. Segunda prioridade: Mesma lista da tarefa pai
+        else if (intent.parent_query) {
             const parentTask = await findTaskByQuery(intent.parent_query);
             if (parentTask) {
                 intentData.parent = parentTask.id;
-                // Subtarefas devem ficar na mesma lista da pai
-                // A função createTask do serviço já lida com isso se passarmos taskListId correto
-                // Mas aqui simplified: googleService.createTask vai precisar do ID da lista se não for default
-                // Como findTaskByQuery retorna task com taskListId, podemos usar
-                // Porém, o createTask atual só recebe (data, listId) como args separados?
-                // Vamos ajustar a chamada:
-                // Mas wait, findTaskByQuery retorna um objeto task enriquecido com taskListId?
-                // Sim, fiz isso no listTasksGrouped
+                targetListId = parentTask.taskListId || '@default';
             } else {
                 await ctx.reply(`⚠️ Não encontrei a tarefa pai "${intent.parent_query}". Criando como tarefa normal.`);
             }
         }
 
-        // Se achou pai, usa a lista do pai. Senão usa default
-        const targetListId = (intent.parent_query && intentData.parent) ?
-            (await findTaskByQuery(intent.parent_query)).taskListId : '@default';
-
         const task = await googleService.createTask(intentData, targetListId);
+        // IMPORTANTE: Adiciona o taskListId no objeto de tarefa para que as sugestões funcionem
+        task.taskListId = targetListId;
+
         scheduler.invalidateCache('tasks');
 
         let msg = `✅ *${intentData.parent ? 'Subtarefa' : 'Tarefa'} criada:* ${intent.title || intent.name}`;
@@ -1667,9 +1709,13 @@ async function processIntent(ctx, intent) {
 
         await ctx.reply(`⏳ Marcando ${targetList.tasks.length} tarefas como concluídas na lista "${targetList.title}"...`);
 
-        // Processa em paralelo
-        const promises = targetList.tasks.map(t => googleService.completeTask(t.id, targetList.id));
-        await Promise.all(promises);
+        // Processa em batches para evitar rate limit
+        await batchProcess(
+            targetList.tasks,
+            t => googleService.completeTask(t.id, targetList.id),
+            10,
+            1000
+        );
 
         scheduler.invalidateCache('tasks');
         await ctx.reply(`✅ Todas as tarefas da lista "*${targetList.title}*" foram concluídas!`, { parse_mode: 'Markdown' });
@@ -1706,7 +1752,7 @@ async function processIntent(ctx, intent) {
         const task = await findTaskByQuery(intent.query);
         if (!task) return ctx.reply('⚠️ Tarefa não encontrada.');
 
-        await googleService.updateTask(task.id, intent, task.taskListId);
+        await googleService.updateTask(task.id, task.taskListId || '@default', intent);
         scheduler.invalidateCache('tasks');
 
         await ctx.reply(`✅ Tarefa "${task.title}" atualizada.`);
@@ -1772,9 +1818,13 @@ async function processIntent(ctx, intent) {
             });
         }
 
-        // Se poucas, executa direto
-        const promises = tasksToComplete.map(t => googleService.completeTask(t.id, t.taskListId));
-        await Promise.all(promises);
+        // Se poucas, executa direto (ainda com batch para futureproofing)
+        await batchProcess(
+            tasksToComplete,
+            t => googleService.completeTask(t.id, t.taskListId),
+            10,
+            1000
+        );
         scheduler.invalidateCache('tasks');
 
         const userId = String(ctx.from.id);
@@ -1784,22 +1834,45 @@ async function processIntent(ctx, intent) {
 
     } else if (intent.tipo === 'report') {
         const now = DateTime.now().setZone('America/Sao_Paulo');
-        const todayStr = now.toFormat('yyyy-MM-dd');
+        // Se a IA detectou uma data específica (ex: amanhã), usa ela. Senão usa hoje.
+        const referenceDate = intent.target_date ? DateTime.fromISO(intent.target_date).setZone('America/Sao_Paulo') : now;
+
         let period = intent.period || 'day';
+        let startDate = referenceDate.startOf('day');
         let endDate;
 
         if (period === 'week') {
-            endDate = now.plus({ days: 7 }).endOf('day');
+            endDate = referenceDate.plus({ days: 7 }).endOf('day');
         } else {
-            endDate = now.endOf('day');
+            endDate = referenceDate.endOf('day');
         }
 
-        // Busca todos os dados
-        const [events, taskGroups, trelloGroups] = await Promise.all([
-            googleService.listEvents(now.startOf('day').toISO(), endDate.toISO()),
-            googleService.listTasksGrouped(),
-            trelloService.listAllCardsGrouped()
-        ]);
+        const periodLabel = intent.target_date
+            ? (referenceDate.hasSame(now.plus({ days: 1 }), 'day') ? 'amanhã' : referenceDate.toFormat('dd/MM'))
+            : (period === 'week' ? 'esta semana' : 'hoje');
+
+        // Busca todos os dados com tratamento de erro individual
+        let events = [], taskGroups = [], trelloGroups = [];
+
+        try {
+            const results = await Promise.allSettled([
+                googleService.listEvents(startDate.toISO(), endDate.toISO()),
+                googleService.listTasksGrouped(),
+                trelloService.listAllCardsGrouped()
+            ]);
+
+            if (results[0].status === 'fulfilled') events = results[0].value;
+            else log.error('Erro ao buscar eventos para o report', { error: results[0].reason?.message });
+
+            if (results[1].status === 'fulfilled') taskGroups = results[1].value;
+            else log.error('Erro ao buscar tarefas para o report', { error: results[1].reason?.message });
+
+            if (results[2].status === 'fulfilled') trelloGroups = results[2].value;
+            else log.error('Erro ao buscar trello para o report', { error: results[2].reason?.message });
+
+        } catch (e) {
+            log.error('Erro global no report', { error: e.message });
+        }
 
         // Flatten tasks
         const tasks = taskGroups.flatMap(g => g.tasks.map(t => ({ ...t, listName: g.title })));
@@ -1809,12 +1882,16 @@ async function processIntent(ctx, intent) {
             .filter(g => g.name.toLowerCase().includes('a fazer') || g.name.toLowerCase().includes('to do'))
             .flatMap(g => g.cards);
 
-        // Tarefas vencendo hoje
-        const tasksWithDeadlineToday = tasks.filter(t => t.due && t.due.startsWith(todayStr));
+        // Tarefas vencendo na data de referência
+        const targetDateStr = referenceDate.toFormat('yyyy-MM-dd');
+        const tasksWithDeadline = tasks.filter(t => t.due && t.due.startsWith(targetDateStr));
 
-        const periodLabel = period === 'week' ? 'da semana' : 'de hoje';
+        let msg = `📋 *RELATÓRIO ${periodLabel.toUpperCase()}* (${referenceDate.toFormat('dd/MM')})\n\n`;
 
-        let msg = `📋 *RELATÓRIO ${periodLabel.toUpperCase()}* (${now.toFormat('dd/MM')})\n\n`;
+        // Se alguma API falhou, avisa no topo
+        if (taskGroups.length === 0 || trelloGroups.length === 0) {
+            msg += `⚠️ _Alguns dados podem estar incompletos devido a erro na API._\n\n`;
+        }
 
         // ESTATÍSTICAS
         msg += `📊 *Resumo:*\n`;
@@ -1823,9 +1900,9 @@ async function processIntent(ctx, intent) {
         msg += `   • ${todoCards.length} cards no Trello\n\n`;
 
         // ALERTAS
-        if (tasksWithDeadlineToday.length > 0) {
-            msg += `⚠️ *VENCENDO HOJE:*\n`;
-            tasksWithDeadlineToday.forEach(t => {
+        if (tasksWithDeadline.length > 0) {
+            msg += `⚠️ *VENCENDO ${periodLabel.toUpperCase()}:*\n`;
+            tasksWithDeadline.forEach(t => {
                 msg += `   🔴 ${t.title}\n`;
             });
             msg += '\n';
@@ -1873,7 +1950,21 @@ async function processIntent(ctx, intent) {
         // TRELLO
         // ============================================
     } else if (intent.tipo === 'trello_create' || intent.tipo === 'trello') {
-        const card = await trelloService.createCard(intent);
+        const intentData = { ...intent };
+
+        // Busca lista específica se solicitada
+        if (intent.list_query) {
+            const groups = await trelloService.listAllCardsGrouped();
+            const targetList = findTrelloListFuzzy(groups, intent.list_query);
+            if (targetList) {
+                intentData.idList = targetList.id;
+                log.bot('Usando lista Trello especificada', { listName: targetList.name });
+            } else {
+                await ctx.reply(`⚠️ Lista Trello "${intent.list_query}" não encontrada. Criando na Inbox.`);
+            }
+        }
+
+        const card = await trelloService.createCard(intentData);
 
         if (intent.checklist && Array.isArray(intent.checklist)) {
             await trelloService.addChecklist(card.id, 'Checklist', intent.checklist);

@@ -6,6 +6,7 @@
 const { DateTime } = require('luxon');
 const googleService = require('./google');
 const { log } = require('../utils/logger');
+const config = require('../config');
 
 /**
  * Verifica se há conflitos com um novo evento
@@ -19,9 +20,9 @@ async function checkConflicts(eventData) {
             return { hasConflict: false, conflicts: [], suggestions: [] };
         }
 
-        const startTime = DateTime.fromISO(eventData.start, { zone: 'America/Sao_Paulo' });
+        const startTime = DateTime.fromISO(eventData.start, { zone: config.timezone });
         const endTime = eventData.end
-            ? DateTime.fromISO(eventData.end, { zone: 'America/Sao_Paulo' })
+            ? DateTime.fromISO(eventData.end, { zone: config.timezone })
             : startTime.plus({ hours: 1 });
 
         // Busca eventos do dia
@@ -207,8 +208,17 @@ function validateSchedulingContext(eventData) {
         return { isValid: false, warnings: ['Horário não especificado'] };
     }
 
-    const startTime = DateTime.fromISO(eventData.start, { zone: 'America/Sao_Paulo' });
-    const now = DateTime.now().setZone('America/Sao_Paulo');
+    const startTime = DateTime.fromISO(eventData.start, { zone: config.timezone });
+
+    // IMPORTANTE: Valida se a data é válida (ex: 31/02 é inválido!)
+    if (!startTime.isValid) {
+        return {
+            isValid: false,
+            warnings: [`Data inválida: ${startTime.invalidReason || 'verifique dia/mês/ano'}`]
+        };
+    }
+
+    const now = DateTime.now().setZone(config.timezone);
 
     // Verifica se é no passado
     if (startTime < now && eventData.start.includes('T')) {
@@ -236,9 +246,15 @@ function validateSchedulingContext(eventData) {
     // Evento longo (mais de 3 horas)
     if (eventData.end) {
         const endTime = DateTime.fromISO(eventData.end, { zone: 'America/Sao_Paulo' });
-        const duration = endTime.diff(startTime, 'hours').hours;
-        if (duration > 3) {
-            warnings.push(`⏱️ Evento longo (${Math.round(duration)} horas)`);
+
+        // Também valida data de fim
+        if (!endTime.isValid) {
+            warnings.push('⚠️ Data de término inválida, usando 1h de duração');
+        } else {
+            const duration = endTime.diff(startTime, 'hours').hours;
+            if (duration > 3) {
+                warnings.push(`⏱️ Evento longo (${Math.round(duration)} horas)`);
+            }
         }
     }
 

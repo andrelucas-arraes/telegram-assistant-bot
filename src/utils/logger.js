@@ -39,7 +39,8 @@ const streams = [
 
 // Adiciona stream de arquivo se possível
 try {
-    const fileStream = fs.createWriteStream(getLogFile(), { flags: 'a' });
+    const logFile = getLogFile();
+    const fileStream = fs.createWriteStream(logFile, { flags: 'a' });
     streams.push({ stream: fileStream });
 } catch (e) {
     console.error('Não foi possível criar stream de log para arquivo', e.message);
@@ -95,27 +96,31 @@ const log = {
     }
 };
 
-// Função para limpar logs antigos (mais de 7 dias)
-const cleanOldLogs = () => {
+/**
+ * Função assíncrona para limpar logs antigos (mais de 7 dias)
+ * Evita bloquear o event loop
+ */
+const cleanOldLogs = async () => {
     try {
-        const files = fs.readdirSync(LOGS_DIR);
+        const files = await fs.promises.readdir(LOGS_DIR);
         const now = Date.now();
         const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 dias
 
-        files.forEach(file => {
+        for (const file of files) {
             const filePath = path.join(LOGS_DIR, file);
-            const stats = fs.statSync(filePath);
+            const stats = await fs.promises.stat(filePath);
+
             if (now - stats.mtimeMs > maxAge) {
-                fs.unlinkSync(filePath);
-                console.log(`Log antigo removido: ${file}`);
+                await fs.promises.unlink(filePath);
+                logger.debug(`Log antigo removido: ${file}`);
             }
-        });
+        }
     } catch (e) {
         // Ignora erros de limpeza
     }
 };
 
-// Limpa logs antigos na inicialização
+// Agenda limpeza (não bloqueia inicialização)
 cleanOldLogs();
 
 module.exports = { logger, log, createChildLogger, LOGS_DIR };

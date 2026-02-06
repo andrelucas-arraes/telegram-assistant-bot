@@ -276,6 +276,7 @@ AÇÕES BÁSICAS:
   - `notes` (string, opcional): Detalhes
   - `due` (string, opcional): Data de vencimento (YYYY-MM-DD)
   - `priority` (string, opcional): "high", "medium"
+  - `list_query` (string, opcional): Nome da lista desejada (ex: "Simões", "Escritório")
   - `parent_query` (string, opcional): Nome da tarefa pai (para subtarefas)
 
 - `list_tasks`: Listar tarefas pendentes
@@ -427,7 +428,8 @@ AÇÕES:
 
 - `report`: Gerar relatório unificado (eventos + tarefas + trello)
   - `period` (string, opcional): "day" (hoje), "week" (semana)
-  - Usar quando: "mande um relatório", "resumo do dia", "o que tenho pendente?"
+  - `target_date` (YYYY-MM-DD, opcional): Data específica (ex: amanhã = {{TOMORROW}})
+  - Usar quando: "mande um relatório", "resumo do dia", "o que tenho para amanhã?", "o que tenho pendente?"
 
 ========================
 💬 TIPO: CHAT

@@ -5,6 +5,7 @@
 
 const Fuse = require('fuse.js');
 const { log } = require('./logger');
+const config = require('../config');
 
 /**
  * Cria uma instância do Fuse configurada para busca de eventos
@@ -16,13 +17,14 @@ const { log } = require('./logger');
 function createFuzzySearcher(items, keys, options = {}) {
     const defaultOptions = {
         // Qual porcentagem de match é necessária (0 = match perfeito, 1 = qualquer coisa)
-        threshold: 0.4,
+        // NOTA: Usa valor do config
+        threshold: config.fuzzySearch.defaultThreshold,
         // Distância máxima de caracteres
         distance: 100,
         // Peso da posição (matches no início são mais relevantes)
         location: 0,
-        // Mínimo de caracteres para buscar
-        minMatchCharLength: 2,
+        // Mínimo de caracteres para buscar (aumentado para evitar matches ruins)
+        minMatchCharLength: config.fuzzySearch.minMatchCharLength,
         // Incluir score no resultado
         includeScore: true,
         // Chaves para buscar
@@ -50,7 +52,8 @@ function findEventFuzzy(events, query) {
     }
 
     const fuse = createFuzzySearcher(events, ['summary', 'description'], {
-        threshold: 0.4
+        threshold: 0.3,
+        minMatchCharLength: 3
     });
 
     const results = fuse.search(query);
@@ -61,6 +64,13 @@ function findEventFuzzy(events, query) {
     }
 
     const best = results[0];
+
+    // Se match muito ruim (score > threshold no config), força usuário a ser mais específico
+    if (best.score > config.fuzzySearch.maxBadScoreThreshold) {
+        log.warn('Match fuzzy com score ruim', { query, match: best.item.summary, score: best.score });
+        return null;
+    }
+
     log.debug('Busca fuzzy encontrou', {
         query,
         match: best.item.summary,
@@ -82,7 +92,8 @@ function findTaskFuzzy(tasks, query) {
     }
 
     const fuse = createFuzzySearcher(tasks, ['title', 'notes'], {
-        threshold: 0.4
+        threshold: 0.3,
+        minMatchCharLength: 3
     });
 
     const results = fuse.search(query);
@@ -91,7 +102,15 @@ function findTaskFuzzy(tasks, query) {
         return null;
     }
 
-    return results[0].item;
+    const best = results[0];
+
+    // Se match muito ruim, retorna null
+    if (best.score > 0.5) {
+        log.warn('Match fuzzy tarefa com score ruim', { query, match: best.item.title, score: best.score });
+        return null;
+    }
+
+    return best.item;
 }
 
 /**
@@ -106,7 +125,8 @@ function findTrelloCardFuzzy(cards, query) {
     }
 
     const fuse = createFuzzySearcher(cards, ['name', 'desc'], {
-        threshold: 0.4
+        threshold: 0.3,
+        minMatchCharLength: 3
     });
 
     const results = fuse.search(query);
@@ -115,7 +135,15 @@ function findTrelloCardFuzzy(cards, query) {
         return null;
     }
 
-    return results[0].item;
+    const best = results[0];
+
+    // Se match muito ruim, retorna null
+    if (best.score > 0.5) {
+        log.warn('Match fuzzy card com score ruim', { query, match: best.item.name, score: best.score });
+        return null;
+    }
+
+    return best.item;
 }
 
 /**

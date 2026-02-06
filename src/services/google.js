@@ -4,6 +4,7 @@ const { google } = require('googleapis');
 const { DateTime } = require('luxon');
 const { log } = require('../utils/logger');
 const { withGoogleRetry } = require('../utils/retry');
+const config = require('../config');
 
 const SCOPES = [
     'https://www.googleapis.com/auth/calendar',
@@ -69,13 +70,13 @@ async function createEvent(eventData) {
         };
 
         if (eventData.start && eventData.start.includes('T')) {
-            resource.start = { dateTime: eventData.start, timeZone: 'America/Sao_Paulo' };
+            resource.start = { dateTime: eventData.start, timeZone: config.timezone };
         } else if (eventData.start) {
             resource.start = { date: eventData.start };
         }
 
         if (eventData.end && eventData.end.includes('T')) {
-            resource.end = { dateTime: eventData.end, timeZone: 'America/Sao_Paulo' };
+            resource.end = { dateTime: eventData.end, timeZone: config.timezone };
         } else if (eventData.end) {
             resource.end = { date: eventData.end };
         }
@@ -139,12 +140,12 @@ async function updateEvent(eventId, updates) {
         if (updates.location) resource.location = updates.location;
         if (updates.start) {
             resource.start = updates.start.includes('T')
-                ? { dateTime: updates.start, timeZone: 'America/Sao_Paulo' }
+                ? { dateTime: updates.start, timeZone: config.timezone }
                 : { date: updates.start };
         }
         if (updates.end) {
             resource.end = updates.end.includes('T')
-                ? { dateTime: updates.end, timeZone: 'America/Sao_Paulo' }
+                ? { dateTime: updates.end, timeZone: config.timezone }
                 : { date: updates.end };
         }
         if (updates.colorId) resource.colorId = updates.colorId;

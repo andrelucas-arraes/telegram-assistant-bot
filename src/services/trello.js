@@ -74,7 +74,7 @@ async function createCard({ name, desc, due, labels, members }) {
         const params = new URLSearchParams({
             key: TRELLO_API_KEY,
             token: TRELLO_TOKEN,
-            idList: TRELLO_LIST_INBOX,
+            idList: cardData.idList || TRELLO_LIST_INBOX,
             name: name,
         });
 

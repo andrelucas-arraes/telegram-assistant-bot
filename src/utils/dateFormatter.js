@@ -5,7 +5,9 @@
 
 const { DateTime } = require('luxon');
 
-const TIMEZONE = 'America/Sao_Paulo';
+const config = require('../config');
+
+const TIMEZONE = config.timezone;
 
 /**
  * Formata uma data/hora de forma amigável
@@ -138,19 +140,14 @@ function getTimeUntil(isoDate) {
  * @returns {string}
  */
 function getEventStatusEmoji(event) {
+    // 1. PRIMEIRO verifica conclusão (máxima prioridade)
+    if (event.summary?.startsWith('✅')) {
+        return '✅';
+    }
+
     const emojis = [];
 
-    // Evento online
-    if (event.hangoutLink || event.conferenceData) {
-        emojis.push('📹');
-    }
-
-    // Evento recorrente
-    if (event.recurringEventId) {
-        emojis.push('🔄');
-    }
-
-    // Status baseado em tempo
+    // 2. Status baseado em tempo (adiciona no início)
     if (event.start?.dateTime) {
         const start = DateTime.fromISO(event.start.dateTime, { zone: TIMEZONE });
         const now = DateTime.now().setZone(TIMEZONE);
@@ -158,22 +155,26 @@ function getEventStatusEmoji(event) {
 
         if (diffMinutes < 0) {
             // Já passou ou em andamento
-            emojis.unshift('⏸️');
+            emojis.push('⏸️');
         } else if (diffMinutes <= 60) {
             // Próximo (menos de 1h)
-            emojis.unshift('🟡');
+            emojis.push('🟡');
         } else {
             // Confirmado/futuro
-            emojis.unshift('🟢');
+            emojis.push('🟢');
         }
     } else {
         // All-day event
-        emojis.unshift('📆');
+        emojis.push('📆');
     }
 
-    // Evento concluído (marcado com ✅)
-    if (event.summary?.startsWith('✅')) {
-        return '✅';
+    // 3. DEPOIS adiciona modificadores
+    if (event.hangoutLink || event.conferenceData) {
+        emojis.push('📹');
+    }
+
+    if (event.recurringEventId) {
+        emojis.push('🔄');
     }
 
     return emojis.join(' ');
