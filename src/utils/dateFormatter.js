@@ -22,7 +22,7 @@ function formatFriendlyDate(isoDate, options = {}) {
         relative = true
     } = options;
 
-    const date = DateTime.fromISO(isoDate).setZone(TIMEZONE);
+    const date = DateTime.fromISO(isoDate, { zone: TIMEZONE });
     const now = DateTime.now().setZone(TIMEZONE);
 
     // Verifica se é all-day event (sem 'T')
@@ -87,8 +87,8 @@ function formatFriendlyDate(isoDate, options = {}) {
 function formatTimeRange(startIso, endIso) {
     if (!startIso) return '';
 
-    const start = DateTime.fromISO(startIso).setZone(TIMEZONE);
-    const end = endIso ? DateTime.fromISO(endIso).setZone(TIMEZONE) : null;
+    const start = DateTime.fromISO(startIso, { zone: TIMEZONE });
+    const end = endIso ? DateTime.fromISO(endIso, { zone: TIMEZONE }) : null;
 
     const isAllDay = !startIso.includes('T');
 
@@ -114,7 +114,7 @@ function formatTimeRange(startIso, endIso) {
 function getTimeUntil(isoDate) {
     if (!isoDate) return '';
 
-    const date = DateTime.fromISO(isoDate).setZone(TIMEZONE);
+    const date = DateTime.fromISO(isoDate, { zone: TIMEZONE });
     const now = DateTime.now().setZone(TIMEZONE);
 
     const diff = date.diff(now, ['days', 'hours', 'minutes']);
@@ -152,7 +152,7 @@ function getEventStatusEmoji(event) {
 
     // Status baseado em tempo
     if (event.start?.dateTime) {
-        const start = DateTime.fromISO(event.start.dateTime).setZone(TIMEZONE);
+        const start = DateTime.fromISO(event.start.dateTime, { zone: TIMEZONE });
         const now = DateTime.now().setZone(TIMEZONE);
         const diffMinutes = start.diff(now, 'minutes').minutes;
 

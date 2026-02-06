@@ -212,6 +212,21 @@ function initScheduler(bot) {
             }
         }
 
+        // Frase Motivacional Aleatória
+        const phrases = [
+            '"O sucesso é a soma de pequenos esforços repetidos dia após dia." 💪',
+            '"Não pare até se orgulhar." 🚀',
+            '"A disciplina é a mãe do êxito." 🎯',
+            '"Foco na meta!" 🏹',
+            '"Você é capaz de coisas incríveis." ✨',
+            '"Vamos fazer acontecer!" 🔥',
+            '"Um passo de cada vez." 👣',
+            '"Acredite no seu potencial." 💡',
+            '"Persistência é o caminho do êxito." 🛣️'
+        ];
+        const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+        msg += `\n_${randomPhrase}_`;
+
         chatIds.forEach(id => bot.telegram.sendMessage(id, msg, { parse_mode: 'Markdown', disable_web_page_preview: true }).catch(e => { }));
     }, { timezone: "America/Sao_Paulo" });
 
@@ -225,7 +240,12 @@ function initScheduler(bot) {
         const tasks = memoryCache.tasks;
 
         // Eventos Restantes Hoje
+        // Eventos Restantes Hoje
         const remainingEvents = memoryCache.events.filter(e => {
+            if (e.start.date) {
+                const eventDate = DateTime.fromISO(e.start.date).setZone('America/Sao_Paulo');
+                return eventDate.hasSame(now, 'day');
+            }
             if (e.start.dateTime) {
                 return DateTime.fromISO(e.start.dateTime) > now;
             }
@@ -248,8 +268,8 @@ function initScheduler(bot) {
             msg += `📅 *Próximos Eventos:*\n`;
             remainingEvents.forEach(e => {
                 const emoji = getEventStatusEmoji(e);
-                const time = DateTime.fromISO(e.start.dateTime).setZone('America/Sao_Paulo');
-                msg += `   ${emoji} ${time.toFormat('HH:mm')} - ${e.summary}\n`;
+                const time = formatFriendlyDate(e.start.dateTime || e.start.date, { relative: false, showYear: false });
+                msg += `   ${emoji} ${time} - ${e.summary}\n`;
             });
             msg += '\n';
         }

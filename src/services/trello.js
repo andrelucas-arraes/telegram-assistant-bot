@@ -261,13 +261,55 @@ async function deleteCard(cardId) {
  * @param {string} boardId - ID do board (opcional, usa o do .env)
  * @returns {Promise<Array>} Cards encontrados
  */
+let _resolvedBoardId = null;
+
+/**
+ * Resolve o ID do board (Short ID -> Long ID) se necessário
+ */
+async function ensureBoardId(boardId) {
+    if (!boardId) throw new Error('TRELLO_BOARD_ID required');
+
+    // Se já for 24 chars hex, assume que é ObjectID válido
+    if (/^[0-9a-fA-F]{24}$/.test(boardId)) {
+        return boardId;
+    }
+
+    // Se já resolvemos o ID do env var e é o mesmo solicitado
+    if (_resolvedBoardId && boardId === process.env.TRELLO_BOARD_ID) {
+        return _resolvedBoardId;
+    }
+
+    // Busca o ID real na API
+    try {
+        const url = `${BASE_URL}/boards/${boardId}?fields=id&${getAuthParams()}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(await response.text());
+        const board = await response.json();
+
+        // Cache se for o do env
+        if (boardId === process.env.TRELLO_BOARD_ID) {
+            _resolvedBoardId = board.id;
+        }
+        return board.id;
+    } catch (error) {
+        log.error('Erro ao resolver Board ID', { error: error.message, boardId });
+        return boardId; // Retorna original se falhar
+    }
+}
+
+/**
+ * Busca cards por texto (nome, descrição, etc.)
+ * @param {string} query - Texto para buscar
+ * @param {string} boardId - ID do board (opcional, usa o do .env)
+ * @returns {Promise<Array>} Cards encontrados
+ */
 async function searchCards(query, boardId = process.env.TRELLO_BOARD_ID) {
     return withTrelloRetry(async () => {
-        if (!boardId) throw new Error('TRELLO_BOARD_ID required');
+        const resolvedBoardId = await ensureBoardId(boardId);
 
         const params = new URLSearchParams({
             query: query,
-            idBoards: boardId,
+            idBoards: resolvedBoardId,
             modelTypes: 'cards',
             card_fields: 'id,name,desc,due,idList,labels,shortUrl,closed',
             cards_limit: 20,
