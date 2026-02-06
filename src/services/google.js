@@ -343,13 +343,11 @@ async function listTasksGrouped() {
                 showHidden: false
             });
 
-            if (tasksResponse.data.items && tasksResponse.data.items.length > 0) {
-                groupedTasks.push({
-                    title: list.title,
-                    id: list.id,
-                    tasks: tasksResponse.data.items
-                });
-            }
+            groupedTasks.push({
+                title: list.title,
+                id: list.id,
+                tasks: tasksResponse.data.items || []
+            });
         }
 
         log.google('Tarefas agrupadas listadas', { listCount: groupedTasks.length });
