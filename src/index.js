@@ -49,17 +49,32 @@ bot.use(async (ctx, next) => {
 });
 
 // ============================================
+// TECLADO FIXO DE AÇÕES RÁPIDAS
+// ============================================
+
+const mainKeyboard = Markup.keyboard([
+    ['📅 Agenda de Hoje', '📅 Agenda da Semana'],
+    ['✅ Minhas Tarefas', '🗂️ Meu Trello'],
+    ['🔄 Atualizar Tudo']
+]).resize();
+
+// Função helper para enviar com teclado
+function replyWithKeyboard(ctx, message, options = {}) {
+    return ctx.reply(message, { ...options, ...mainKeyboard });
+}
+
+// ============================================
 // COMANDOS
 // ============================================
 
 bot.start((ctx) => {
     log.bot('Start', { userId: ctx.from.id });
-    ctx.reply('👋 Olá! Sou seu Assistente Supremo!\n\nPosso ajudar com:\n📅 Google Calendar\n✅ Google Tasks\n🗂️ Trello\n\nDigite /help para ver exemplos de uso.');
+    replyWithKeyboard(ctx, '👋 Olá! Sou seu Assistente Supremo!\n\nPosso ajudar com:\n📅 Google Calendar\n✅ Google Tasks\n🗂️ Trello\n\nDigite /ajuda para ver exemplos ou use os botões abaixo! 👇');
 });
 
 // Comando /help com menu interativo
-bot.command('help', (ctx) => {
-    log.bot('Help', { userId: ctx.from.id });
+bot.command('ajuda', (ctx) => {
+    log.bot('Ajuda', { userId: ctx.from.id });
 
     const helpMessage = `
 🤖 *Assistente Supremo - Ajuda*
@@ -194,6 +209,321 @@ Escolha uma categoria abaixo para ver exemplos de comandos:
 });
 
 // ============================================
+// HANDLERS DO TECLADO FIXO
+// ============================================
+
+bot.hears('📅 Agenda de Hoje', async (ctx) => {
+    log.bot('Teclado: Agenda de Hoje', { userId: ctx.from.id });
+
+    try {
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        const events = await googleService.listEvents(
+            now.startOf('day').toISO(),
+            now.endOf('day').toISO()
+        );
+
+        if (events.length === 0) {
+            return replyWithKeyboard(ctx, '📅 *Hoje*\n\n✨ Nenhum evento agendado para hoje!', { parse_mode: 'Markdown' });
+        }
+
+        let msg = `📅 *Agenda de Hoje (${now.toFormat('dd/MM')})*\n\n`;
+        events.forEach(e => {
+            msg += formatEventForDisplay(e) + '\n';
+        });
+
+        replyWithKeyboard(ctx, msg, { parse_mode: 'Markdown' });
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.reply('❌ Erro ao buscar agenda.');
+    }
+});
+
+bot.hears('📅 Agenda da Semana', async (ctx) => {
+    log.bot('Teclado: Agenda da Semana', { userId: ctx.from.id });
+
+    try {
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        const events = await googleService.listEvents(
+            now.startOf('day').toISO(),
+            now.plus({ days: 7 }).endOf('day').toISO()
+        );
+
+        if (events.length === 0) {
+            return replyWithKeyboard(ctx, '📅 *Próximos 7 dias*\n\n✨ Nenhum evento agendado!', { parse_mode: 'Markdown' });
+        }
+
+        let msg = `📅 *Agenda da Semana*\n\n`;
+        events.forEach(e => {
+            msg += formatEventForDisplay(e) + '\n';
+        });
+
+        replyWithKeyboard(ctx, msg, { parse_mode: 'Markdown' });
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.reply('❌ Erro ao buscar agenda.');
+    }
+});
+
+bot.hears('✅ Minhas Tarefas', async (ctx) => {
+    log.bot('Teclado: Minhas Tarefas', { userId: ctx.from.id });
+
+    try {
+        const groups = await googleService.listTasksGrouped();
+
+        if (groups.length === 0) {
+            return replyWithKeyboard(ctx, '✅ *Tarefas*\n\n🎉 Nenhuma tarefa pendente!', { parse_mode: 'Markdown' });
+        }
+
+        let msg = '✅ *Minhas Tarefas*\n\n';
+        let totalTasks = 0;
+
+        groups.forEach(group => {
+            if (group.tasks.length > 0) {
+                msg += `📁 *${group.title}*\n`;
+                group.tasks.forEach(t => {
+                    msg += `   ▫️ ${t.title}`;
+                    if (t.notes) msg += `\n      📝 _${t.notes}_`;
+                    msg += `\n`;
+                    totalTasks++;
+                });
+                msg += '\n';
+            }
+        });
+
+        if (totalTasks === 0) {
+            return replyWithKeyboard(ctx, '✅ *Tarefas*\n\n🎉 Nenhuma tarefa pendente!', { parse_mode: 'Markdown' });
+        }
+
+        replyWithKeyboard(ctx, msg, { parse_mode: 'Markdown' });
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.reply('❌ Erro ao buscar tarefas.');
+    }
+});
+
+bot.hears('🗂️ Meu Trello', async (ctx) => {
+    log.bot('Teclado: Meu Trello', { userId: ctx.from.id });
+
+    try {
+        const groups = await trelloService.listAllCardsGrouped();
+
+        if (groups.length === 0) {
+            return replyWithKeyboard(ctx, '🗂️ *Trello*\n\n📭 Nenhuma lista encontrada.', { parse_mode: 'Markdown' });
+        }
+
+        let msg = '🗂️ *Meu Trello*\n\n';
+        groups.forEach(group => {
+            msg += `📁 *${group.name}* (${group.cards.length})\n`;
+            if (group.cards.length === 0) {
+                msg += `   _(vazia)_\n`;
+            } else {
+                group.cards.slice(0, 5).forEach(c => {
+                    msg += `   📌 [${c.name}](${c.shortUrl})\n`;
+                });
+                if (group.cards.length > 5) {
+                    msg += `   _...e mais ${group.cards.length - 5} cards_\n`;
+                }
+            }
+            msg += '\n';
+        });
+
+        replyWithKeyboard(ctx, msg, { parse_mode: 'Markdown', disable_web_page_preview: true });
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.reply('❌ Erro ao buscar Trello.');
+    }
+});
+
+bot.hears('🔄 Atualizar Tudo', async (ctx) => {
+    log.bot('Teclado: Atualizar Tudo', { userId: ctx.from.id });
+
+    const processingMsg = await ctx.reply('🔄 Atualizando cache...');
+
+    try {
+        await scheduler.invalidateCache('all');
+        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id).catch(() => { });
+        replyWithKeyboard(ctx, '✅ Cache atualizado! Dados sincronizados com Google e Trello.');
+    } catch (error) {
+        log.apiError('Bot', error);
+        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id).catch(() => { });
+        ctx.reply('❌ Erro ao atualizar cache.');
+    }
+});
+
+// ============================================
+// CALLBACKS DE AÇÕES RÁPIDAS (Eventos)
+// ============================================
+
+// Adicionar Meet a um evento
+bot.action(/event_add_meet:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    log.bot('Ação: Adicionar Meet', { eventId });
+
+    try {
+        await ctx.answerCbQuery('📹 Adicionando link do Meet...');
+
+        // Busca o evento atual
+        const auth = await require('./services/google');
+
+        // Atualiza com conferência
+        const event = await googleService.updateEvent(eventId, {
+            conferenceData: {
+                createRequest: {
+                    requestId: Math.random().toString(36).substring(7),
+                    conferenceSolutionKey: { type: 'hangoutsMeet' }
+                }
+            }
+        });
+
+        scheduler.invalidateCache('events');
+
+        await ctx.editMessageText(
+            `✅ Link do Meet adicionado ao evento!\n\n📹 O link será gerado automaticamente.`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.answerCbQuery('❌ Erro ao adicionar Meet');
+    }
+});
+
+// Editar evento (mostra opções)
+bot.action(/event_edit:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    log.bot('Ação: Editar evento', { eventId });
+
+    await ctx.answerCbQuery();
+
+    const editKeyboard = Markup.inlineKeyboard([
+        [
+            Markup.button.callback('🕐 Mudar Horário', `event_edit_time:${eventId}`),
+            Markup.button.callback('📝 Mudar Título', `event_edit_title:${eventId}`)
+        ],
+        [
+            Markup.button.callback('📍 Mudar Local', `event_edit_location:${eventId}`),
+            Markup.button.callback('✅ Marcar Concluído', `event_complete:${eventId}`)
+        ],
+        [Markup.button.callback('⬅️ Voltar', `event_back:${eventId}`)]
+    ]);
+
+    await ctx.editMessageText(
+        '✏️ *O que você quer editar?*\n\nEscolha uma opção abaixo:',
+        { parse_mode: 'Markdown', ...editKeyboard }
+    );
+});
+
+// Editar horário - pede input
+bot.action(/event_edit_time:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        `🕐 *Editar Horário*\n\nDigite o novo horário no formato natural:\n\n_Exemplo: "amanhã às 15h" ou "14:30"_`,
+        { parse_mode: 'Markdown' }
+    );
+    // O próximo texto do usuário será processado pela IA
+});
+
+// Editar título - pede input
+bot.action(/event_edit_title:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        `📝 *Editar Título*\n\nDigite o novo título para o evento:`,
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// Editar local - pede input
+bot.action(/event_edit_location:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+        `📍 *Editar Local*\n\nDigite o novo local do evento:\n\n_Exemplo: "Sala 3" ou "Rua X, 123"_`,
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// Marcar evento como concluído
+bot.action(/event_complete:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    log.bot('Ação: Completar evento', { eventId });
+
+    try {
+        await ctx.answerCbQuery('✅ Marcando como concluído...');
+
+        // Busca evento para pegar o título atual
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        const events = await googleService.listEvents(
+            now.minus({ days: 7 }).toISO(),
+            now.plus({ days: 30 }).toISO()
+        );
+
+        const event = events.find(e => e.id === eventId);
+        if (!event) {
+            return ctx.editMessageText('⚠️ Evento não encontrado.');
+        }
+
+        const newSummary = event.summary.startsWith('✅') ? event.summary : `✅ ${event.summary}`;
+        await googleService.updateEvent(eventId, { summary: newSummary, colorId: '8' });
+
+        scheduler.invalidateCache('events');
+
+        await ctx.editMessageText(`✅ Evento "${event.summary}" marcado como concluído!`);
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.answerCbQuery('❌ Erro ao marcar como concluído');
+    }
+});
+
+// Deletar/Cancelar evento
+bot.action(/event_delete:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+    log.bot('Ação: Deletar evento', { eventId });
+
+    await ctx.answerCbQuery();
+
+    // Confirmação
+    const confirmKeyboard = Markup.inlineKeyboard([
+        [
+            Markup.button.callback('✅ Sim, cancelar', `event_confirm_delete:${eventId}`),
+            Markup.button.callback('❌ Não', `event_cancel_delete:${eventId}`)
+        ]
+    ]);
+
+    await ctx.editMessageText(
+        '⚠️ *Tem certeza que deseja cancelar este evento?*\n\nEsta ação não pode ser desfeita.',
+        { parse_mode: 'Markdown', ...confirmKeyboard }
+    );
+});
+
+// Confirmar deleção
+bot.action(/event_confirm_delete:(.+)/, async (ctx) => {
+    const eventId = ctx.match[1];
+
+    try {
+        await ctx.answerCbQuery('🗑️ Cancelando evento...');
+        await googleService.deleteEvent(eventId);
+        scheduler.invalidateCache('events');
+        await ctx.editMessageText('🗑️ Evento cancelado com sucesso!');
+    } catch (error) {
+        log.apiError('Bot', error);
+        ctx.editMessageText('❌ Erro ao cancelar evento.');
+    }
+});
+
+// Cancelar deleção
+bot.action(/event_cancel_delete:(.+)/, async (ctx) => {
+    await ctx.answerCbQuery('Operação cancelada');
+    await ctx.editMessageText('👍 Ok, evento mantido!');
+});
+
+// Voltar (remove botões de edição)
+bot.action(/event_back:(.+)/, async (ctx) => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText('👍 Ok! Use os botões abaixo para outras ações.', { parse_mode: 'Markdown' });
+});
+
+// ============================================
 // HELPERS INTELIGENTES (com Fuzzy Search)
 // ============================================
 
@@ -285,7 +615,20 @@ async function processIntent(ctx, intent) {
             msg += `\n\n📹 [Entrar na reunião](${event.hangoutLink})`;
         }
 
-        await ctx.reply(msg, { parse_mode: 'Markdown', disable_web_page_preview: true });
+        // Botões de ação rápida
+        const actionButtons = [];
+
+        // Se não tem Meet, oferece adicionar
+        if (!event.hangoutLink) {
+            actionButtons.push(Markup.button.callback('📹 Add Meet', `event_add_meet:${event.id}`));
+        }
+
+        actionButtons.push(Markup.button.callback('✏️ Editar', `event_edit:${event.id}`));
+        actionButtons.push(Markup.button.callback('🗑️ Cancelar', `event_delete:${event.id}`));
+
+        const inlineKeyboard = Markup.inlineKeyboard([actionButtons]);
+
+        await ctx.reply(msg, { parse_mode: 'Markdown', disable_web_page_preview: true, ...inlineKeyboard });
 
     } else if (intent.tipo === 'list_events') {
         const now = DateTime.now().setZone('America/Sao_Paulo');
