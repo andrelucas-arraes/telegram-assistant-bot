@@ -938,6 +938,15 @@ bot.on('text', async (ctx) => {
     // 2. Atualização de Tarefa (Notas ou Prazo)
     if (ctx.session?.pendingTaskUpdate) {
         const { id, field } = ctx.session.pendingTaskUpdate;
+        log.bot('Processando atualização de tarefa pendente', { id, field, text });
+
+        if (!id) {
+            log.bot('Erro: ID da tarefa perdido na sessão');
+            await ctx.reply('❌ Erro: Perdi o contexto da tarefa. Por favor, tente novamente.');
+            delete ctx.session.pendingTaskUpdate;
+            return;
+        }
+
         try {
             const updates = {};
             updates[field] = text;
@@ -956,7 +965,7 @@ bot.on('text', async (ctx) => {
             const fieldName = field === 'notes' ? 'Notas' : 'Prazo';
             await ctx.reply(`✅ ${fieldName} da tarefa atualizados!`);
         } catch (error) {
-            log.apiError('Bot', error);
+            log.apiError('Bot', error, { context: 'pendingTaskUpdate', taskId: id });
             await ctx.reply('❌ Erro ao atualizar tarefa. Verifique se o formato é válido.');
         }
         delete ctx.session.pendingTaskUpdate;
