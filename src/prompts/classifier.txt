@@ -246,6 +246,10 @@ AÇÕES:
 - `complete_event`: Marcar como concluído (adiciona ✅)
   - `query` (string): Texto para buscar
 
+- `complete_all_events`: Marcar TODOS os eventos de um período como concluídos
+  - `period` (string): "day" (hoje), "week" (semana), ou data específica (YYYY-MM-DD)
+  - Usar quando: "concluí todos", "fiz todos os de hoje", "esses aí já fiz", "todos esses"
+
 - `delete_event`: Apagar evento
   - `query` (string): Texto para buscar (seja ESPECÍFICO)
   - `target_date` (opcional): Para apagar ocorrência específica
@@ -454,6 +458,19 @@ User: "Yoga toda terça às 7h"
 
 User: "URGENTE reunião de emergência amanhã às 9h"
 { "tipo": "create_event", "summary": "Reunião de emergência", "start": "{{TOMORROW}}T09:00:00", "end": "{{TOMORROW}}T10:00:00", "priority": "high" }
+
+--- COMPLETAR EVENTOS ---
+User: "concluí todos os eventos de hoje"
+{ "tipo": "complete_all_events", "period": "day" }
+
+User: "já fiz todos esses"
+{ "tipo": "complete_all_events", "period": "day" }
+
+User: "esses aí eu já fiz"
+{ "tipo": "complete_all_events", "period": "day" }
+
+User: "todos esses eventos estão feitos"
+{ "tipo": "complete_all_events", "period": "day" }
 
 --- CRIAR TAREFA ---
 User: "Lembrar de comprar presente"

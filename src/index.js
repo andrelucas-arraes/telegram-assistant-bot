@@ -1236,6 +1236,50 @@ async function processIntent(ctx, intent) {
 
         await ctx.reply(`✅ Evento "${event.summary}" marcado como concluído!`);
 
+    } else if (intent.tipo === 'complete_all_events') {
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        let start, end, periodLabel;
+
+        if (intent.period === 'day' || !intent.period) {
+            start = now.startOf('day').toISO();
+            end = now.endOf('day').toISO();
+            periodLabel = 'hoje';
+        } else if (intent.period === 'week') {
+            start = now.startOf('day').toISO();
+            end = now.plus({ days: 7 }).endOf('day').toISO();
+            periodLabel = 'esta semana';
+        } else {
+            // Trata como data específica
+            const target = DateTime.fromISO(intent.period).setZone('America/Sao_Paulo');
+            start = target.startOf('day').toISO();
+            end = target.endOf('day').toISO();
+            periodLabel = target.toFormat('dd/MM');
+        }
+
+        const events = await googleService.listEvents(start, end);
+
+        if (events.length === 0) {
+            return ctx.reply(`📅 Nenhum evento encontrado para ${periodLabel}.`);
+        }
+
+        // Filtra eventos que ainda não estão marcados como concluídos
+        const pendingEvents = events.filter(e => !e.summary.startsWith('✅'));
+
+        if (pendingEvents.length === 0) {
+            return ctx.reply(`✅ Todos os eventos de ${periodLabel} já estão concluídos!`);
+        }
+
+        await ctx.reply(`⏳ Marcando ${pendingEvents.length} eventos como concluídos...`);
+
+        // Processa em paralelo
+        const promises = pendingEvents.map(e =>
+            googleService.updateEvent(e.id, { summary: `✅ ${e.summary}`, colorId: '8' })
+        );
+        await Promise.all(promises);
+
+        scheduler.invalidateCache('events');
+        await ctx.reply(`✅ ${pendingEvents.length} eventos de ${periodLabel} marcados como concluídos!`);
+
     } else if (intent.tipo === 'delete_event') {
         const event = await findEventByQuery(intent.query, intent.target_date);
         if (!event) return ctx.reply(`⚠️ Não encontrei evento com "${intent.query}"${intent.target_date ? ` na data ${intent.target_date}` : ''}.`);
