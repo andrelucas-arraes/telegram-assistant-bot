@@ -1123,6 +1123,10 @@ async function processIntent(ctx, intent) {
         // --- Valida contexto do agendamento ---
         const contextValidation = smartScheduling.validateSchedulingContext(intent);
 
+        if (!contextValidation.isValid) {
+            return ctx.reply(`⚠️ *Não foi possível agendar*\n\n${contextValidation.warnings[0]}`, { parse_mode: 'Markdown' });
+        }
+
         const event = await googleService.createEvent(intent);
         const friendlyDate = formatFriendlyDate(intent.start);
         const emoji = event.hangoutLink ? '📹' : '📅';

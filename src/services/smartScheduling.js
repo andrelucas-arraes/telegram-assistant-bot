@@ -19,9 +19,9 @@ async function checkConflicts(eventData) {
             return { hasConflict: false, conflicts: [], suggestions: [] };
         }
 
-        const startTime = DateTime.fromISO(eventData.start).setZone('America/Sao_Paulo');
+        const startTime = DateTime.fromISO(eventData.start, { zone: 'America/Sao_Paulo' });
         const endTime = eventData.end
-            ? DateTime.fromISO(eventData.end).setZone('America/Sao_Paulo')
+            ? DateTime.fromISO(eventData.end, { zone: 'America/Sao_Paulo' })
             : startTime.plus({ hours: 1 });
 
         // Busca eventos do dia
@@ -207,7 +207,7 @@ function validateSchedulingContext(eventData) {
         return { isValid: false, warnings: ['Horário não especificado'] };
     }
 
-    const startTime = DateTime.fromISO(eventData.start).setZone('America/Sao_Paulo');
+    const startTime = DateTime.fromISO(eventData.start, { zone: 'America/Sao_Paulo' });
     const now = DateTime.now().setZone('America/Sao_Paulo');
 
     // Verifica se é no passado
@@ -235,7 +235,7 @@ function validateSchedulingContext(eventData) {
 
     // Evento longo (mais de 3 horas)
     if (eventData.end) {
-        const endTime = DateTime.fromISO(eventData.end);
+        const endTime = DateTime.fromISO(eventData.end, { zone: 'America/Sao_Paulo' });
         const duration = endTime.diff(startTime, 'hours').hours;
         if (duration > 3) {
             warnings.push(`⏱️ Evento longo (${Math.round(duration)} horas)`);
