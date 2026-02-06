@@ -65,7 +65,7 @@ async function addMember(cardId, memberId) {
     }, 'addMember');
 }
 
-async function createCard({ name, desc, due, labels, members }) {
+async function createCard({ name, desc, due, labels, members, idList }) {
     return withTrelloRetry(async () => {
         if (!TRELLO_LIST_INBOX) {
             throw new Error('TRELLO_LIST_ID_INBOX não configurado no .env');
@@ -74,7 +74,7 @@ async function createCard({ name, desc, due, labels, members }) {
         const params = new URLSearchParams({
             key: TRELLO_API_KEY,
             token: TRELLO_TOKEN,
-            idList: cardData.idList || TRELLO_LIST_INBOX,
+            idList: idList || TRELLO_LIST_INBOX,
             name: name,
         });
 

@@ -342,6 +342,7 @@ AÇÕES BÁSICAS:
   - `due` (string, opcional): Data de vencimento
   - `checklist` (array de strings, opcional): Itens de checklist
   - `priority` (string, opcional): "high", "medium"
+  - `list_query` (string, opcional): Nome da lista (ex: "A Fazer", "Sprint")
 
 - `trello_list`: Listar todos os cards
   - `list_query` (string, opcional): Filtrar por nome da lista (ex: "A Fazer")
