@@ -2,6 +2,31 @@ const fetch = global.fetch;
 const { log } = require('../utils/logger');
 const { withTrelloRetry } = require('../utils/retry');
 
+let rateLimitStats = {
+    limit: null,
+    remaining: null,
+    lastUpdate: null
+};
+
+// Wrapper para interceptar headers de rate limit
+async function fetchTrello(url, options) {
+    const response = await fetchTrello(url, options);
+
+    // Captura headers se existirem
+    const limit = response.headers.get('x-ratelimit-limit');
+    const remaining = response.headers.get('x-ratelimit-remaining');
+
+    if (limit) {
+        rateLimitStats = {
+            limit: parseInt(limit),
+            remaining: parseInt(remaining),
+            lastUpdate: new Date()
+        };
+    }
+
+    return response;
+}
+
 const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
 const TRELLO_TOKEN = process.env.TRELLO_TOKEN;
 const TRELLO_LIST_INBOX = process.env.TRELLO_LIST_ID_INBOX;
@@ -19,7 +44,7 @@ async function getLists(boardId = process.env.TRELLO_BOARD_ID) {
     return withTrelloRetry(async () => {
         if (!boardId) throw new Error('TRELLO_BOARD_ID required (env or param)');
         const url = `${BASE_URL}/boards/${boardId}/lists?${getAuthParams()}`;
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
         const lists = await response.json();
         log.trello('Listas obtidas', { count: lists.length });
@@ -31,7 +56,7 @@ async function getLabels(boardId = process.env.TRELLO_BOARD_ID) {
     return withTrelloRetry(async () => {
         if (!boardId) throw new Error('TRELLO_BOARD_ID required');
         const url = `${BASE_URL}/boards/${boardId}/labels?${getAuthParams()}`;
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         return await response.json();
     }, 'getLabels');
 }
@@ -40,7 +65,7 @@ async function getMembers(boardId = process.env.TRELLO_BOARD_ID) {
     return withTrelloRetry(async () => {
         if (!boardId) throw new Error('TRELLO_BOARD_ID required');
         const url = `${BASE_URL}/boards/${boardId}/members?${getAuthParams()}`;
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         return await response.json();
     }, 'getMembers');
 }
@@ -48,7 +73,7 @@ async function getMembers(boardId = process.env.TRELLO_BOARD_ID) {
 async function addLabel(cardId, labelId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/idLabels?value=${labelId}&${getAuthParams()}`;
-        const response = await fetch(url, { method: 'POST' });
+        const response = await fetchTrello(url, { method: 'POST' });
         if (!response.ok) throw new Error(await response.text());
         log.trello('Label adicionada', { cardId, labelId });
         return await response.json();
@@ -58,7 +83,7 @@ async function addLabel(cardId, labelId) {
 async function addMember(cardId, memberId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/idMembers?value=${memberId}&${getAuthParams()}`;
-        const response = await fetch(url, { method: 'POST' });
+        const response = await fetchTrello(url, { method: 'POST' });
         if (!response.ok) throw new Error(await response.text());
         log.trello('Membro adicionado', { cardId, memberId });
         return await response.json();
@@ -87,7 +112,7 @@ async function createCard({ name, desc, due, labels, members, idList }) {
 
         log.trello('Criando card', { name });
 
-        const response = await fetch(url, { method: 'POST' });
+        const response = await fetchTrello(url, { method: 'POST' });
         if (!response.ok) throw new Error(await response.text());
 
         const card = await response.json();
@@ -102,7 +127,7 @@ async function listCards(listId = TRELLO_LIST_INBOX) {
 
         const url = `${BASE_URL}/lists/${listId}/cards?fields=name,shortUrl,due,idList,labels,desc&${getAuthParams()}`;
 
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
         return await response.json();
     }, 'listCards');
@@ -172,7 +197,7 @@ async function updateCard(cardId, updates) {
 
         log.trello('Atualizando card', { cardId, updates: Object.keys(updates) });
 
-        const response = await fetch(url, { method: 'PUT' });
+        const response = await fetchTrello(url, { method: 'PUT' });
         if (!response.ok) throw new Error(await response.text());
 
         const card = await response.json();
@@ -184,7 +209,7 @@ async function updateCard(cardId, updates) {
 async function addComment(cardId, text) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/actions/comments?text=${encodeURIComponent(text)}&${getAuthParams()}`;
-        const response = await fetch(url, { method: 'POST' });
+        const response = await fetchTrello(url, { method: 'POST' });
         if (!response.ok) throw new Error(await response.text());
         log.trello('Comentário adicionado', { cardId });
         return await response.json();
@@ -195,7 +220,7 @@ async function addChecklist(cardId, name, items = []) {
     return withTrelloRetry(async () => {
         // 1. Criar Checklist
         const urlCreate = `${BASE_URL}/cards/${cardId}/checklists?name=${encodeURIComponent(name || 'Checklist')}&${getAuthParams()}`;
-        const resCreate = await fetch(urlCreate, { method: 'POST' });
+        const resCreate = await fetchTrello(urlCreate, { method: 'POST' });
         if (!resCreate.ok) throw new Error(await resCreate.text());
         const checklist = await resCreate.json();
 
@@ -205,7 +230,7 @@ async function addChecklist(cardId, name, items = []) {
         if (items && items.length > 0) {
             for (const item of items) {
                 const urlItem = `${BASE_URL}/checklists/${checklist.id}/checkItems?name=${encodeURIComponent(item)}&${getAuthParams()}`;
-                await fetch(urlItem, { method: 'POST' });
+                await fetchTrello(urlItem, { method: 'POST' });
             }
             log.trello('Itens adicionados à checklist', { count: items.length });
         }
@@ -227,7 +252,7 @@ async function getCard(cardId) {
         const fields = 'id,name,desc,due,dueComplete,idList,idBoard,labels,shortUrl,url,closed,idMembers,idChecklists,dateLastActivity';
         const url = `${BASE_URL}/cards/${cardId}?fields=${fields}&checklists=all&checklist_fields=all&members=true&attachments=true&${getAuthParams()}`;
 
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
 
         const card = await response.json();
@@ -245,7 +270,7 @@ async function deleteCard(cardId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}?${getAuthParams()}`;
 
-        const response = await fetch(url, { method: 'DELETE' });
+        const response = await fetchTrello(url, { method: 'DELETE' });
         if (!response.ok) throw new Error(await response.text());
 
         log.trello('Card deletado', { cardId });
@@ -280,7 +305,7 @@ async function ensureBoardId(boardId) {
     // Busca o ID real na API
     try {
         const url = `${BASE_URL}/boards/${boardId}?fields=id&${getAuthParams()}`;
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
         const board = await response.json();
 
@@ -316,7 +341,7 @@ async function searchCards(query, boardId = process.env.TRELLO_BOARD_ID) {
 
         const url = `${BASE_URL}/search?${params.toString()}&${getAuthParams()}`;
 
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
 
         const result = await response.json();
@@ -337,7 +362,7 @@ async function getBoardCards(boardId = process.env.TRELLO_BOARD_ID) {
         const fields = 'id,name,desc,due,dueComplete,idList,labels,shortUrl,closed,idMembers,idChecklists';
         const url = `${BASE_URL}/boards/${boardId}/cards?fields=${fields}&${getAuthParams()}`;
 
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
 
         const cards = await response.json();
@@ -355,7 +380,7 @@ async function getCardChecklists(cardId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/checklists?checkItem_fields=name,state,pos,due,idMember&${getAuthParams()}`;
 
-        const response = await fetch(url);
+        const response = await fetchTrello(url);
         if (!response.ok) throw new Error(await response.text());
 
         const checklists = await response.json();
@@ -385,7 +410,7 @@ async function updateCheckItem(cardId, checkItemId, updates) {
 
         const url = `${BASE_URL}/cards/${cardId}/checkItem/${checkItemId}?${params.toString()}`;
 
-        const response = await fetch(url, { method: 'PUT' });
+        const response = await fetchTrello(url, { method: 'PUT' });
         if (!response.ok) throw new Error(await response.text());
 
         const item = await response.json();
@@ -452,5 +477,10 @@ module.exports = {
     getCardChecklists,
     updateCheckItem,
     deleteCheckItem,
-    removeLabel
+    removeLabel,
+    // Status
+    getStatus: () => ({
+        online: !!process.env.TRELLO_API_KEY,
+        rateLimit: rateLimitStats
+    })
 };

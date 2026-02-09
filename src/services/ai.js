@@ -200,4 +200,10 @@ async function interpretMessage(text, userId, userContext = '') {
     }
 }
 
-module.exports = { interpretMessage };
+module.exports = {
+    interpretMessage,
+    getStatus: () => ({
+        model: "gemini-2.5-flash",
+        online: true
+    })
+};

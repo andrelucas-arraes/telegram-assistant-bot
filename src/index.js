@@ -1,15 +1,16 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const LocalSession = require('telegraf-session-local');
-const { interpretMessage } = require('./services/ai');
+const { interpretMessage, getStatus: getAiStatus } = require('./services/ai');
 const googleService = require('./services/google');
 const trelloService = require('./services/trello');
 const knowledgeService = require('./services/knowledge');
 const smartScheduling = require('./services/smartScheduling');
 const { DateTime } = require('luxon');
 const scheduler = require('./services/scheduler');
-const { log } = require('./utils/logger');
+const { log, runWithContext } = require('./utils/logger');
 const { rateLimiter } = require('./utils/rateLimiter');
+const crypto = require('crypto');
 const { formatFriendlyDate, getEventStatusEmoji, formatEventForDisplay } = require('./utils/dateFormatter');
 const { findEventFuzzy, findTaskFuzzy, findTrelloCardFuzzy, findTrelloListFuzzy } = require('./utils/fuzzySearch');
 const { getEventSuggestions, getTaskSuggestions, getTrelloSuggestions, getConflictButtons } = require('./utils/suggestions');
@@ -26,6 +27,29 @@ const localSession = new LocalSession({
     storage: LocalSession.storagefileAsync
 });
 bot.use(localSession.middleware());
+
+// MIDDLEWARE: Request Context (Traceability)
+bot.use(async (ctx, next) => {
+    const requestId = crypto.randomUUID();
+    const userId = ctx.from?.id;
+
+    return runWithContext({ requestId, userId }, async () => {
+        // Log request start
+        if (ctx.message?.text) {
+            log.info('📩 Nova mensagem recebida', {
+                text: ctx.message.text.substring(0, 50),
+                chatId: ctx.chat?.id
+            });
+        }
+
+        try {
+            await next();
+        } finally {
+            // Opcional: logar fim do request
+            // log.info('Request finalizado');
+        }
+    });
+});
 
 // Init scheduler
 scheduler.initScheduler(bot);
@@ -100,6 +124,67 @@ function replyWithKeyboard(ctx, message, options = {}) {
 bot.start((ctx) => {
     log.bot('Start', { userId: ctx.from.id });
     replyWithKeyboard(ctx, '👋 Olá! Sou seu Assistente Supremo!\n\nPosso ajudar com:\n📅 Google Calendar\n✅ Google Tasks\n🗂️ Trello\n🧠 Guardar informações\n\nDigite /ajuda para ver exemplos ou use os botões abaixo! 👇');
+});
+
+bot.command('api', async (ctx) => {
+    log.bot('Comando /api solicitado');
+
+    const statusMsg = await ctx.reply('🔍 Verificando status dos serviços...');
+
+    try {
+        // Coleta status
+        const ai = getAiStatus();
+        const trello = trelloService.getStatus();
+        const google = await googleService.getStatus();
+
+        const uptime = process.uptime();
+        const uptimeString = `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
+
+        const memory = process.memoryUsage();
+        const memoryString = `${Math.round(memory.rss / 1024 / 1024)}MB`;
+
+        let msg = `📊 *Status do Sistema*\n\n`;
+
+        // AI
+        msg += `🤖 *Inteligência Artificial*\n`;
+        msg += `   • Modelo: ${ai.model}\n`;
+        msg += `   • Status: ${ai.online ? '✅ Online' : '❌ Offline'}\n\n`;
+
+        // Trello
+        msg += `🗂️ *Trello*\n`;
+        msg += `   • Status: ${trello.online ? '✅ Online' : '❌ Configurar .env'}\n`;
+        if (trello.rateLimit && trello.rateLimit.limit) {
+            msg += `   • Limite: ${trello.rateLimit.remaining}/${trello.rateLimit.limit}\n`;
+        } else {
+            msg += `   • Limite: _(sem dados recentes)_\n`;
+        }
+        msg += '\n';
+
+        // Google
+        msg += `📅 *Google Services*\n`;
+        msg += `   • Status: ${google.online ? '✅ Online' : '❌ Erro'}\n`;
+        msg += `   • Autenticado: ${google.authenticated ? '✅ Sim' : '❌ Não'}\n`;
+        if (google.error) msg += `   • Erro: _${google.error}_\n`;
+        msg += '\n';
+
+        // System
+        msg += `⚙️ *Servidor*\n`;
+        msg += `   • Uptime: ${uptimeString}\n`;
+        msg += `   • Memória: ${memoryString}\n`;
+        msg += `   • Node: ${process.version}\n`;
+
+        await ctx.telegram.editMessageText(
+            ctx.chat.id,
+            statusMsg.message_id,
+            null,
+            msg,
+            { parse_mode: 'Markdown' }
+        );
+
+    } catch (error) {
+        log.apiError('Status', error);
+        ctx.reply('❌ Erro ao verificar status.');
+    }
 });
 
 // Comando /help com menu interativo

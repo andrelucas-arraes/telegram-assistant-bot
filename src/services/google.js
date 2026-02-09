@@ -447,5 +447,14 @@ module.exports = {
     updateTaskList,
     clearCompletedTasks,
     getTask,
-    moveTask
+    moveTask,
+    // Status
+    getStatus: async () => {
+        try {
+            const auth = await getAuthClient();
+            return { online: true, authenticated: !!auth.credentials };
+        } catch (e) {
+            return { online: false, error: e.message };
+        }
+    }
 };

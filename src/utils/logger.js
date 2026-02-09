@@ -7,6 +7,9 @@
 const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
+
+const localStorage = new AsyncLocalStorage();
 
 const isDev = process.env.NODE_ENV !== 'production';
 const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, '../../data');
@@ -46,6 +49,27 @@ try {
     console.error('Não foi possível criar stream de log para arquivo', e.message);
 }
 
+// Redaction keys
+const SENSITIVE_KEYS = ['token', 'key', 'password', 'secret', 'authorization', 'apiKey', 'accessToken'];
+
+const redactData = (data) => {
+    if (!data || typeof data !== 'object') return data;
+
+    if (Array.isArray(data)) {
+        return data.map(redactData);
+    }
+
+    const redacted = { ...data };
+    for (const key in redacted) {
+        if (SENSITIVE_KEYS.some(k => key.toLowerCase().includes(k))) {
+            redacted[key] = '[REDACTED]';
+        } else if (typeof redacted[key] === 'object') {
+            redacted[key] = redactData(redacted[key]);
+        }
+    }
+    return redacted;
+};
+
 const logger = pino(
     {
         level: process.env.LOG_LEVEL || 'info',
@@ -53,19 +77,24 @@ const logger = pino(
             level: (label) => ({ level: label }),
         },
         timestamp: () => `,"time":"${new Date().toISOString()}"`,
+        mixin() {
+            const context = localStorage.getStore();
+            return context || {};
+        }
     },
     pino.multistream(streams)
 );
 
 // Helpers para contexto
 const createChildLogger = (context) => logger.child(context);
+const runWithContext = (context, callback) => localStorage.run(context, callback);
 
 // Métodos de conveniência
 const log = {
-    info: (msg, data = {}) => logger.info(data, msg),
-    warn: (msg, data = {}) => logger.warn(data, msg),
-    error: (msg, data = {}) => logger.error(data, msg),
-    debug: (msg, data = {}) => logger.debug(data, msg),
+    info: (msg, data = {}) => logger.info(redactData(data), msg),
+    warn: (msg, data = {}) => logger.warn(redactData(data), msg),
+    error: (msg, data = {}) => logger.error(redactData(data), msg),
+    debug: (msg, data = {}) => logger.debug(redactData(data), msg),
 
     // Log de operações específicas
     bot: (action, data = {}) => logger.info({ ...data, component: 'bot', action }, `🤖 Bot: ${action}`),
@@ -123,4 +152,4 @@ const cleanOldLogs = async () => {
 // Agenda limpeza (não bloqueia inicialização)
 cleanOldLogs();
 
-module.exports = { logger, log, createChildLogger, LOGS_DIR };
+module.exports = { logger, log, createChildLogger, runWithContext, LOGS_DIR };

@@ -29,18 +29,28 @@ async function withRetry(fn, options = {}) {
 
     let lastError;
     let delay = initialDelay;
+    const startTime = Date.now();
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            return await fn();
+            const result = await fn();
+            const duration = Date.now() - startTime;
+            if (duration > 1000) {
+                log.warn(`${operationName} completado (lento)`, { duration: `${duration}ms`, attempts: attempt });
+            } else {
+                log.debug(`${operationName} completado`, { duration: `${duration}ms`, attempts: attempt });
+            }
+            return result;
         } catch (error) {
             lastError = error;
 
             // Verifica se deve fazer retry
             if (attempt === maxRetries || !shouldRetry(error)) {
+                const duration = Date.now() - startTime;
                 log.warn(`${operationName} falhou após ${attempt} tentativa(s)`, {
                     error: error.message,
-                    attempts: attempt
+                    attempts: attempt,
+                    duration: `${duration}ms`
                 });
                 throw error;
             }
