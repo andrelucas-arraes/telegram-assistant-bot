@@ -1,4 +1,4 @@
-const fetch = global.fetch;
+const nativeFetch = global.fetch;
 const { log } = require('../utils/logger');
 const { withTrelloRetry } = require('../utils/retry');
 
@@ -10,7 +10,7 @@ let rateLimitStats = {
 
 // Wrapper para interceptar headers de rate limit
 async function fetchTrello(url, options) {
-    const response = await fetch(url, options);
+    const response = await nativeFetch(url, options);
 
     // Captura headers se existirem
     const limit = response.headers.get('x-ratelimit-limit');
@@ -429,7 +429,7 @@ async function deleteCheckItem(cardId, checkItemId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/checkItem/${checkItemId}?${getAuthParams()}`;
 
-        const response = await fetch(url, { method: 'DELETE' });
+        const response = await fetchTrello(url, { method: 'DELETE' });
         if (!response.ok) throw new Error(await response.text());
 
         log.trello('CheckItem deletado', { cardId, checkItemId });
@@ -447,7 +447,7 @@ async function removeLabel(cardId, labelId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/idLabels/${labelId}?${getAuthParams()}`;
 
-        const response = await fetch(url, { method: 'DELETE' });
+        const response = await fetchTrello(url, { method: 'DELETE' });
         if (!response.ok) throw new Error(await response.text());
 
         log.trello('Label removida', { cardId, labelId });
