@@ -230,6 +230,7 @@ module.exports = {
     getStatus: () => ({
         model: "gemini-2.5-flash",
         online: true,
-        usage: usageStats
+        usage: usageStats,
+        sessions: Object.keys(userSessions).length
     })
 };

@@ -143,12 +143,24 @@ bot.command('api', async (ctx) => {
         const memory = process.memoryUsage();
         const memoryString = `${Math.round(memory.rss / 1024 / 1024)}MB`;
 
-        let msg = `📊 *Status do Sistema*\n\n`;
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        const timestamp = now.toFormat('dd/MM/yyyy HH:mm:ss');
+
+        let msg = `📊 *Status do Sistema*\n`;
+        msg += `🕒 ${timestamp}\n\n`;
 
         // AI
         msg += `🤖 *Inteligência Artificial*\n`;
         msg += `   • Modelo: ${ai.model}\n`;
-        msg += `   • Status: ${ai.online ? '✅ Online' : '❌ Offline'}\n\n`;
+        msg += `   • Status: ${ai.online ? '✅ Online' : '❌ Offline'}\n`;
+        if (ai.usage) {
+            msg += `   • Tokens Totais: ${ai.usage.totalTokens.toLocaleString()}\n`;
+            msg += `   • Contexto (Prompt): ${ai.usage.promptTokens.toLocaleString()}\n`;
+            msg += `   • Resposta (Tokens): ${ai.usage.candidateTokens.toLocaleString()}\n`;
+            msg += `   • Sessões Ativas: ${ai.sessions || 0}\n`;
+            msg += `   • Última Resp: ${ai.usage.lastRequestTokens} tokens\n`;
+        }
+        msg += '\n';
 
         // Trello
         msg += `🗂️ *Trello*\n`;
@@ -172,6 +184,7 @@ bot.command('api', async (ctx) => {
         msg += `   • Uptime: ${uptimeString}\n`;
         msg += `   • Memória: ${memoryString}\n`;
         msg += `   • Node: ${process.version}\n`;
+        msg += `   • PID: ${process.pid}\n`;
 
         await ctx.telegram.editMessageText(
             ctx.chat.id,
