@@ -2131,18 +2131,46 @@ async function processIntent(ctx, intent) {
         // ============================================
     } else if (intent.tipo === 'trello_create' || intent.tipo === 'trello') {
         const intentData = { ...intent };
+
+        // FALLBACK: Tenta extrair status e labels da descrição se não vieram na intent
+        if (!intentData.list_query && intentData.desc) {
+            // Match: "Status: Value", "### Status\nValue", "### Status\n- Value", etc.
+            const statusMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Status(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            if (statusMatch) {
+                intentData.list_query = statusMatch[1].trim();
+                log.bot('Fallback: Status extraído da descrição', { list: intentData.list_query });
+            }
+        }
+
+        if ((!intentData.label_query || intentData.label_query.length === 0) && intentData.desc) {
+            const labels = [];
+
+            // Tipo de caso
+            const tipoMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Tipo de caso(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            if (tipoMatch) labels.push(tipoMatch[1].trim());
+
+            // Prioridade (se não for a padrão do sistema - ou se estiver descrito explicitamente)
+            const prioMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Prioridade(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            if (prioMatch) labels.push(prioMatch[1].trim());
+
+            if (labels.length > 0) {
+                intentData.label_query = labels;
+                log.bot('Fallback: Labels extraídas da descrição', { labels });
+            }
+        }
+
         let targetListId = process.env.TRELLO_LIST_ID_INBOX;
 
         // Busca lista específica se solicitada
-        if (intent.list_query) {
+        if (intentData.list_query) {
             const groups = await trelloService.listAllCardsGrouped();
-            const targetList = findTrelloListFuzzy(groups, intent.list_query);
+            const targetList = findTrelloListFuzzy(groups, intentData.list_query);
             if (targetList) {
                 intentData.idList = targetList.id;
                 targetListId = targetList.id;
                 log.bot('Usando lista Trello especificada', { listName: targetList.name });
             } else {
-                await ctx.reply(`⚠️ Lista Trello "${intent.list_query}" não encontrada. Criando na Inbox.`);
+                await ctx.reply(`⚠️ Lista Trello "${intentData.list_query}" não encontrada. Criando na Inbox.`);
             }
         }
 
@@ -2194,8 +2222,8 @@ async function processIntent(ctx, intent) {
             let labelsToAdd = [];
 
             // 1. Label solicitada explicitamente (label_query) - Suporta string ou array
-            if (intent.label_query) {
-                const queries = Array.isArray(intent.label_query) ? intent.label_query : [intent.label_query];
+            if (intentData.label_query) {
+                const queries = Array.isArray(intentData.label_query) ? intentData.label_query : [intentData.label_query];
 
                 for (const query of queries) {
                     const targetLabel = boardLabels.find(l =>
@@ -2214,7 +2242,7 @@ async function processIntent(ctx, intent) {
             }
 
             // 2. Prioridade Alta (Label Vermelha)
-            if (intent.priority === 'high') {
+            if (intentData.priority === 'high') {
                 const redLabel = boardLabels.find(l => l.color === 'red');
                 if (redLabel && !labelsToAdd.includes(redLabel.id)) {
                     labelsToAdd.push(redLabel.id);
@@ -2230,8 +2258,8 @@ async function processIntent(ctx, intent) {
 
         const card = await trelloService.createCard(intentData);
 
-        if (intent.checklist && Array.isArray(intent.checklist)) {
-            await trelloService.addChecklist(card.id, 'Checklist', intent.checklist);
+        if (intentData.checklist && Array.isArray(intentData.checklist)) {
+            await trelloService.addChecklist(card.id, 'Checklist', intentData.checklist);
         }
 
 
@@ -2239,7 +2267,7 @@ async function processIntent(ctx, intent) {
         scheduler.invalidateCache('trello');
 
         let msg = `✅ *Card Criado:* [${card.name}](${card.shortUrl})`;
-        if (intent.priority === 'high') {
+        if (intentData.priority === 'high') {
             msg = `🔴 *URGENTE* - ${msg}`;
         }
 
