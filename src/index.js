@@ -2280,10 +2280,39 @@ async function processIntent(ctx, intent) {
             log.error('Erro ao resolver labels na criação', error);
         }
 
+
+        // FALLBACK Checklist: Extrair "Pendência atual"
+        if (intentData.desc) {
+            const pendenciaMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Pendência atual(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|Cliente|Tipo de caso|Observações|Prioridade|Status)|$))/i);
+
+            if (pendenciaMatch) {
+                const pendenciaText = pendenciaMatch[1].trim();
+                if (pendenciaText) {
+                    // Seperar por linhas ou usar texto inteiro como item único se não tiver marcadores
+                    const items = pendenciaText.split(/\r?\n/).map(l => l.replace(/^-\s*/, '').trim()).filter(l => l);
+
+                    if (items.length > 0) {
+                        intentData.checklist = items;
+                        intentData.checklistName = 'Pendência atual'; // Nome da checklist
+                        log.bot('Fallback: Checklist extraída da descrição', { count: items.length });
+                    }
+                }
+            }
+
+            // FALLBACK Title: Formatar como "Cliente - Tipo de Caso"
+            const clienteMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Cliente(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            const tipoMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Tipo de caso(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+
+            if (clienteMatch && tipoMatch) {
+                intentData.name = `${clienteMatch[1].trim()} - ${tipoMatch[1].trim()}`;
+                log.bot('Fallback: Nome do card atualizado', { name: intentData.name });
+            }
+        }
+
         const card = await trelloService.createCard(intentData);
 
         if (intentData.checklist && Array.isArray(intentData.checklist)) {
-            await trelloService.addChecklist(card.id, 'Checklist', intentData.checklist);
+            await trelloService.addChecklist(card.id, intentData.checklistName || 'Checklist', intentData.checklist);
         }
 
 
