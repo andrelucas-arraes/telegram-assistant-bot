@@ -2307,6 +2307,24 @@ async function processIntent(ctx, intent) {
                 intentData.name = `${clienteMatch[1].trim()} - ${tipoMatch[1].trim()}`;
                 log.bot('Fallback: Nome do card atualizado', { name: intentData.name });
             }
+
+            // LIMPEZA DA DESCRIÇÃO: Manter apenas Observações
+            // Tenta extrair apenas o bloco de observações
+            const obsMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Observações(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|Cliente|Tipo de caso|Pendência atual|Prioridade|Status)|$))/i);
+
+            if (obsMatch) {
+                // Se encontrou observações, usa apenas elas como descrição
+                const obsText = obsMatch[1].trim();
+                intentData.desc = `### Observações\n${obsText}`;
+            } else {
+                // Se não encontrou observações explícitas, tenta limpar os outros campos conhecidos para não duplicar
+                // Remove linhas que começam com campos conhecidos
+                let cleanedDesc = intentData.desc
+                    .replace(/(?:^|\n)(?:###\s*)?(Cliente|Tipo de caso|Pendência atual|Prioridade|Status)(?::|(?:\r?\n)+)(?:.*)(?=\n|$)/gi, '')
+                    .trim();
+
+                intentData.desc = cleanedDesc;
+            }
         }
 
         const card = await trelloService.createCard(intentData);
