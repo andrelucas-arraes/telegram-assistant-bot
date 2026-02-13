@@ -2156,7 +2156,7 @@ async function processIntent(ctx, intent) {
             if (tipoMatch) extraLabels.push(tipoMatch[1].trim());
 
             // Prioridade
-            const prioMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Prioridade(?:\*\*|__)?\s*(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            const prioMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Prioridade(?:\*\*|__)?\s*(?::|(?:\s*-\s*)?|(?:\r?\n)+)(?:\s*[-:]?\s*)?([^\r\n]+)/i);
             if (prioMatch) extraLabels.push(prioMatch[1].trim());
 
             if (extraLabels.length > 0) {
@@ -2273,6 +2273,9 @@ async function processIntent(ctx, intent) {
         // --- RESOLUÇÃO DE LABELS (Tipo de caso, etc.) ---
         try {
             const boardLabels = await trelloService.getLabels();
+            const availableLabelNames = boardLabels.map(l => l.name).filter(Boolean);
+            log.bot('Labels disponíveis no Board', { count: boardLabels.length, names: availableLabelNames });
+
             let labelsToAdd = [];
 
             // 1. Label solicitada explicitamente (label_query) - Suporta string ou array
@@ -2287,9 +2290,21 @@ async function processIntent(ctx, intent) {
                     const normalize = str => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
                     const normalizedQuery = normalize(query);
 
+                    // 1. Match exato normalizado
                     let targetLabel = boardLabels.find(l =>
                         l.name && normalize(l.name) === normalizedQuery
                     );
+
+                    // 2. Match parcial (fallback) se não achou exato
+                    // Ex: "Rotina" matches "Rotinas" ou "Prioridade: Rotina" matches "Rotina"
+                    if (!targetLabel) {
+                        targetLabel = boardLabels.find(l =>
+                            l.name && (normalize(l.name).includes(normalizedQuery) || normalizedQuery.includes(normalize(l.name)))
+                        );
+                        if (targetLabel) {
+                            log.bot('Label match parcial', { query, found: targetLabel.name });
+                        }
+                    }
 
                     if (!targetLabel) {
                         try {
