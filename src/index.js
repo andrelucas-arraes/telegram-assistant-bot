@@ -2138,7 +2138,13 @@ async function processIntent(ctx, intent) {
             const statusMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Status(?:\*\*|__)?\s*(?::|(?:\s*-\s*)?|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
 
             if (statusMatch) {
-                const extractedStatus = statusMatch[1].trim();
+                let extractedStatus = statusMatch[1].trim();
+                // Limpa qualificadores extras: "Em andamento (dependendo de Wilfred)" → "Em andamento"
+                extractedStatus = extractedStatus
+                    .replace(/\s*\(.*?\)\s*/g, '')
+                    .replace(/\s*-\s+dependendo.*$/i, '')
+                    .replace(/\s*dependendo\s+de\s+.*/i, '')
+                    .trim();
                 // Override apenas se encontrou algo válido e diferente de "vazio"
                 if (extractedStatus && extractedStatus.length > 2) {
                     intentData.list_query = extractedStatus;
@@ -2205,18 +2211,55 @@ async function processIntent(ctx, intent) {
         if (intentData.list_query) {
             const groups = await trelloService.listAllCardsGrouped();
 
+            // LIMPEZA do list_query: Remove parênteses e qualificadores extras
+            // Ex: "Em andamento (dependendo de Wilfred)" → "Em andamento"
+            // Ex: "Parado (dependendo de Wellington)" → "Parado"
+            let cleanListQuery = intentData.list_query
+                .replace(/\s*\(.*?\)\s*/g, '')  // Remove conteúdo entre parênteses
+                .replace(/\s*-\s+dependendo.*$/i, '')  // Remove "- dependendo de..."
+                .replace(/\s*dependendo\s+de\s+.*/i, '')  // Remove "dependendo de ..."
+                .trim();
+
+            // Se a limpeza resultou em string vazia, usa o original
+            if (!cleanListQuery) cleanListQuery = intentData.list_query.trim();
+
             // Log para debug
-            log.bot('Buscando lista Trello', { query: intentData.list_query, availableLists: groups.map(g => g.name) });
+            log.bot('Buscando lista Trello', {
+                queryOriginal: intentData.list_query,
+                queryCleaned: cleanListQuery,
+                availableLists: groups.map(g => g.name)
+            });
 
-            // 1. Tenta busca fuzzy primeiro (já existente)
-            let targetList = findTrelloListFuzzy(groups, intentData.list_query);
+            const normalize = str => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+            const queryNorm = normalize(cleanListQuery);
 
-            // 2. Fallback: Busca "contains" normalizado (ex: "Parado" encontra "Lista Parado" ou "Parados")
+            // 1. Tenta match exato normalizado primeiro
+            let targetList = groups.find(g => normalize(g.name) === queryNorm);
+
+            // 2. Tenta busca fuzzy
             if (!targetList) {
-                const normalize = str => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-                const queryNorm = normalize(intentData.list_query);
+                targetList = findTrelloListFuzzy(groups, cleanListQuery);
+            }
 
-                targetList = groups.find(g => normalize(g.name).includes(queryNorm));
+            // 3. Fallback: Busca bidirecional "contains" normalizado
+            // Ex: "Parado" encontra "Lista Parado" (nome contém query)
+            // Ex: "Em andamento extra texto" encontra "Em andamento" (query contém nome)
+            if (!targetList) {
+                targetList = groups.find(g => {
+                    const nameNorm = normalize(g.name);
+                    return nameNorm.includes(queryNorm) || queryNorm.includes(nameNorm);
+                });
+            }
+
+            // 4. Fallback: Primeiro palavra significativa da query (ex: "Parado" de "Parado dependendo de X")
+            if (!targetList) {
+                const firstWord = queryNorm.split(/\s+/)[0];
+                if (firstWord && firstWord.length > 2) {
+                    targetList = groups.find(g => normalize(g.name).includes(firstWord));
+                    if (targetList) {
+                        log.bot('Match por primeira palavra', { firstWord, found: targetList.name });
+                    }
+                }
             }
 
             if (targetList) {

@@ -353,7 +353,7 @@ AÇÕES BÁSICAS:
   - `due` (string, opcional): Data de vencimento
   - `checklist` (array de strings, opcional): Itens de checklist
   - `priority` (string, opcional): "high", "medium"
-  - `list_query` (string, opcional): Nome da lista (ex: "A Fazer", "Sprint"). SE O USUÁRIO DISSER "Status: X", USE X COMO A LISTA!
+  - `list_query` (string, opcional): Nome da lista (ex: "A Fazer", "Sprint"). SE O USUÁRIO DISSER "Status: X", USE X COMO A LISTA! IMPORTANTE: Use APENAS o status principal, sem qualificadores. Ex: "Status: Em andamento (dependendo de Wilfred)" → list_query: "Em andamento". "Status: Parado (dependendo de Wellington)" → list_query: "Parado". NUNCA inclua parênteses ou textos extras no list_query!
   - `label_query` (array de strings, opcional): Nomes das etiquetas. SE O USUÁRIO DISSER "Tipo de caso: Y" ou "Prioridade: Z", inclua Y e Z aqui!
 
 - `trello_list`: Listar todos os cards
