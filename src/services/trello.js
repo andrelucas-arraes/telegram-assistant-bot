@@ -80,6 +80,27 @@ async function addLabel(cardId, labelId) {
     }, 'addLabel');
 }
 
+async function createLabel(name, color = null) {
+    return withTrelloRetry(async () => {
+        const boardId = await ensureBoardId(process.env.TRELLO_BOARD_ID);
+        const params = new URLSearchParams({
+            key: TRELLO_API_KEY,
+            token: TRELLO_TOKEN,
+            name: name,
+            idBoard: boardId
+        });
+        if (color) params.append('color', color);
+
+        const url = `${BASE_URL}/labels?${params.toString()}`;
+        const response = await fetchTrello(url, { method: 'POST' });
+        if (!response.ok) throw new Error(await response.text());
+
+        const label = await response.json();
+        log.trello('Nova label criada', { name, color, id: label.id });
+        return label;
+    }, 'createLabel');
+}
+
 async function addMember(cardId, memberId) {
     return withTrelloRetry(async () => {
         const url = `${BASE_URL}/cards/${cardId}/idMembers?value=${memberId}&${getAuthParams()}`;
@@ -468,6 +489,7 @@ module.exports = {
     getLabels,
     getMembers,
     addLabel,
+    createLabel,
     addMember,
     // Novos endpoints avançados
     getCard,

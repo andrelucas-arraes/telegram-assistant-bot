@@ -634,8 +634,9 @@ Status: Parado
 { 
   "tipo": "trello_create", 
   "name": "Ana Rejane Jacó - Imóveis", 
-  "desc": "Cliente: Ana Rejane Jacó\nTipo de caso: Imóveis\nPendência atual: Verificar se a cliente fará o registro dos imóveis\nPrioridade: Rotina", 
-  "list_query": "Parado" 
+  "desc": "Cliente: Ana Rejane Jacó\nTipo de caso: Imóveis\nPendência atual: Verificar se a cliente fará o registro dos imóveis\nPrioridade: Rotina\nStatus: Parado", 
+  "list_query": "Parado",
+  "label_query": ["Imóveis", "Rotina"]
 }
 
 User: "
@@ -646,7 +647,7 @@ Status: Em andamento
 { 
   "tipo": "trello_create", 
   "name": "Inventário - Pendências", 
-  "desc": "### Pendência atual\n- Peça técnica do imóvel;\n- Documentos pessoais;\n- Certidões civis.\n\n### Observações\n- Gilberto Basílio (inventariante).", 
+  "desc": "### Pendência atual\n- Peça técnica do imóvel;\n- Documentos pessoais;\n- Certidões civis.\n\n### Observações\n- Gilberto Basílio (inventariante).\n\n### Status\n- Em andamento", 
   "label_query": ["Inventário", "Em andamento"],
   "list_query": "Em andamento"
 }

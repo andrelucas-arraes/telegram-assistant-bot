@@ -2142,20 +2142,34 @@ async function processIntent(ctx, intent) {
             }
         }
 
-        if ((!intentData.label_query || intentData.label_query.length === 0) && intentData.desc) {
-            const labels = [];
+        // FALLBACK labels: Sempre tenta extrair extras da descrição, mesmo que já existam algumas
+        if (intentData.desc) {
+            const extraLabels = [];
 
             // Tipo de caso
             const tipoMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Tipo de caso(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
-            if (tipoMatch) labels.push(tipoMatch[1].trim());
+            if (tipoMatch) extraLabels.push(tipoMatch[1].trim());
 
-            // Prioridade (se não for a padrão do sistema - ou se estiver descrito explicitamente)
+            // Prioridade
             const prioMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Prioridade(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
-            if (prioMatch) labels.push(prioMatch[1].trim());
+            if (prioMatch) extraLabels.push(prioMatch[1].trim());
 
-            if (labels.length > 0) {
-                intentData.label_query = labels;
-                log.bot('Fallback: Labels extraídas da descrição', { labels });
+            if (extraLabels.length > 0) {
+                // Se já existe label_query, garante que é array e faz merge
+                let currentLabels = [];
+                if (intentData.label_query) {
+                    currentLabels = Array.isArray(intentData.label_query) ? intentData.label_query : [intentData.label_query];
+                }
+
+                // Adiciona apenas se não duplicar
+                for (const l of extraLabels) {
+                    if (!currentLabels.some(cl => cl.toLowerCase() === l.toLowerCase())) {
+                        currentLabels.push(l);
+                    }
+                }
+
+                intentData.label_query = currentLabels;
+                log.bot('Fallback: Labels mescladas da descrição', { labels: currentLabels });
             }
         }
 
@@ -2225,18 +2239,28 @@ async function processIntent(ctx, intent) {
             if (intentData.label_query) {
                 const queries = Array.isArray(intentData.label_query) ? intentData.label_query : [intentData.label_query];
 
-                for (const query of queries) {
-                    const targetLabel = boardLabels.find(l =>
+                for (const rawQuery of queries) {
+                    const query = rawQuery.trim();
+                    if (!query) continue;
+
+                    let targetLabel = boardLabels.find(l =>
                         l.name && l.name.toLowerCase() === query.toLowerCase()
                     );
+
+                    if (!targetLabel) {
+                        try {
+                            log.bot('Criando nova label no Trello', { name: query });
+                            targetLabel = await trelloService.createLabel(query, 'sky'); // Cor padrão: Sky (Azul claro)
+                        } catch (err) {
+                            log.error('Erro ao criar label automática', { query, error: err.message });
+                        }
+                    }
 
                     if (targetLabel) {
                         if (!labelsToAdd.includes(targetLabel.id)) {
                             labelsToAdd.push(targetLabel.id);
-                            log.bot('Label encontrada', { query, label: targetLabel.name });
+                            log.bot('Label vinculada', { query, label: targetLabel.name });
                         }
-                    } else {
-                        log.warn('Label solicitada não encontrada', { query });
                     }
                 }
             }
