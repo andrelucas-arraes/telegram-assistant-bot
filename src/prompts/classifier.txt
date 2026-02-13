@@ -652,6 +652,22 @@ Status: Em andamento
   "list_query": "Em andamento"
 }
 
+User: "
+Cliente: Prefeitura de Simões
+Tipo de caso: Desapropriações
+Pendência atual: Wilfred verificar com a prefeitura.
+Observações: Três desapropriações (Ademar, José, Josefa Joselita e espólio de Gildo Antônio e Joaquina da Conceição).
+Prioridade: Rotina
+Status: Parado
+"
+{ 
+  "tipo": "trello_create", 
+  "name": "Prefeitura de Simões - Desapropriações", 
+  "desc": "### Observações\n- Três desapropriações (Ademar, José, Josefa Joselita e espólio de Gildo Antônio e Joaquina da Conceição).\n\n### Status\nParado", 
+  "list_query": "Parado",
+  "label_query": ["Desapropriações", "Rotina"]
+}
+
 --- MEMÓRIA ---
 User: "Guarda aí: a senha do wifi da mãe é 1234"
 { "tipo": "store_info", "key": "senha wifi mãe", "value": "A senha do wifi da casa da mãe é 1234", "category": "pessoal" }
