@@ -2134,13 +2134,13 @@ async function processIntent(ctx, intent) {
 
         // FALLBACK: Tenta extrair status da descrição (Prioridade sobre o que a IA inferiu)
         if (intentData.desc) {
-            // Match: "Status: Value", "### Status\nValue", "### Status\n- Value", etc.
-            const statusMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Status(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
+            // Match: "Status: Value", "### Status\nValue", "### Status\n- Value", "Status - Value"
+            const statusMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?Status(?::|(?:\s*-\s*)?|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
 
             if (statusMatch) {
                 const extractedStatus = statusMatch[1].trim();
-                // Override apenas se encontrou algo válido
-                if (extractedStatus) {
+                // Override apenas se encontrou algo válido e diferente de "vazio"
+                if (extractedStatus && extractedStatus.length > 2) {
                     intentData.list_query = extractedStatus;
                     log.bot('Fallback: Status extraído da descrição (Override)', { list: intentData.list_query });
                 }
