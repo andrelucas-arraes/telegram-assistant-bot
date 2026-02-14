@@ -2384,24 +2384,59 @@ async function processIntent(ctx, intent) {
 
 
         // FALLBACK Checklist: Extrair "Pendência atual"
-        if (intentData.desc) {
-            const pendenciaMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Pendência atual(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|(?:\*\*|__)?(?:Cliente|Tipo de caso|Observações|Prioridade|Status)(?:\*\*|__)?)|$))/i);
+        // Se a IA já enviou checklist direto, usa. Senão tenta extrair da desc.
+        if (intentData.checklist && Array.isArray(intentData.checklist) && intentData.checklist.length > 0) {
+            // IA já enviou checklist - verificar se itens precisam de split adicional
+            const expandedItems = [];
+            for (const item of intentData.checklist) {
+                // Se o item contém ; ou , que parece separar sub-itens, faz split
+                if (item.includes(';')) {
+                    expandedItems.push(...item.split(';').map(s => s.trim()).filter(s => s));
+                } else {
+                    expandedItems.push(item.trim());
+                }
+            }
+            intentData.checklist = expandedItems;
+
+            // Usa checklist_name da IA se disponível
+            if (intentData.checklist_name) {
+                intentData.checklistName = intentData.checklist_name;
+            } else {
+                intentData.checklistName = 'Pendência atual';
+            }
+            log.bot('Checklist da IA processada', { name: intentData.checklistName, count: intentData.checklist.length });
+        } else if (intentData.desc) {
+            // FALLBACK: Tenta extrair "Pendência atual" da descrição
+            const pendenciaMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Pendência atual(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|(?:\*\*|__)?(?:Cliente|Tipo de caso|Observações|Prioridade|Status)(?:\*\*|__)?))|$)/i);
 
             if (pendenciaMatch) {
                 const pendenciaText = pendenciaMatch[1].trim();
                 if (pendenciaText) {
-                    // Seperar por linhas ou usar texto inteiro como item único se não tiver marcadores
-                    const items = pendenciaText.split(/\r?\n/).map(l => l.replace(/^-\s*/, '').trim()).filter(l => l);
+                    // Split inteligente: por quebra de linha, ; ou ,
+                    let items;
+                    if (pendenciaText.includes(';')) {
+                        items = pendenciaText.split(';');
+                    } else if (pendenciaText.includes('\n')) {
+                        items = pendenciaText.split(/\r?\n/);
+                    } else if (pendenciaText.includes(',') && pendenciaText.split(',').length > 1) {
+                        items = pendenciaText.split(',');
+                    } else {
+                        items = [pendenciaText];
+                    }
+
+                    items = items.map(l => l.replace(/^-\s*/, '').replace(/^\d+\.\s*/, '').trim()).filter(l => l);
 
                     if (items.length > 0) {
                         intentData.checklist = items;
-                        intentData.checklistName = 'Pendência atual'; // Nome da checklist
+                        intentData.checklistName = 'Pendência atual';
                         log.bot('Fallback: Checklist extraída da descrição', { count: items.length });
                     }
                 }
             }
+        }
 
-            // FALLBACK Title: Formatar como "Cliente - Tipo de Caso"
+        // FALLBACK Title: Formatar como "Cliente - Tipo de Caso"
+        if (intentData.desc) {
             const clienteMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Cliente(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
             const tipoMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Tipo de caso(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?([^\r\n]+)/i);
 
@@ -2409,18 +2444,24 @@ async function processIntent(ctx, intent) {
                 intentData.name = `${clienteMatch[1].trim()} - ${tipoMatch[1].trim()}`;
                 log.bot('Fallback: Nome do card atualizado', { name: intentData.name });
             }
+        }
 
-            // LIMPEZA DA DESCRIÇÃO: Manter apenas Observações
-            // Tenta extrair apenas o bloco de observações
-            const obsMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Observações(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|(?:\*\*|__)?(?:Cliente|Tipo de caso|Pendência atual|Prioridade|Status)(?:\*\*|__)?)|$))/i);
+        // LIMPEZA DA DESCRIÇÃO: Manter apenas Observações
+        if (intentData.desc) {
+            const obsMatch = intentData.desc.match(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?Observações(?:\*\*|__)?(?::|(?:\r?\n)+)(?:\s*-\s*)?((?:.|\n)*?)(?=(?:\n(?:###|(?:\*\*|__)?(?:Cliente|Tipo de caso|Pendência atual|Prioridade|Status)(?:\*\*|__)?))|$)/i);
 
             if (obsMatch) {
-                // Se encontrou observações, usa apenas elas como descrição
                 const obsText = obsMatch[1].trim();
-                intentData.desc = `### Observações\n${obsText}`;
+                if (obsText) {
+                    // Formata as observações como lista markdown se ainda não estiver
+                    const obsLines = obsText.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+                    const formattedObs = obsLines.map(l => l.startsWith('-') ? l : `- ${l}`).join('\n');
+                    intentData.desc = `### Observações\n${formattedObs}`;
+                } else {
+                    intentData.desc = '';
+                }
             } else {
-                // Se não encontrou observações explícitas, tenta limpar os outros campos conhecidos para não duplicar
-                // Remove linhas que começam com campos conhecidos
+                // Se não encontrou observações explícitas, limpa campos conhecidos
                 let cleanedDesc = intentData.desc
                     .replace(/(?:^|\n)(?:###\s*)?(?:\*\*|__)?(Cliente|Tipo de caso|Pendência atual|Prioridade|Status)(?:\*\*|__)?(?::|(?:\r?\n)+)(?:.*)(?=\n|$)/gi, '')
                     .trim();

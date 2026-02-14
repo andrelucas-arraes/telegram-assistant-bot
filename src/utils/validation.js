@@ -115,11 +115,16 @@ const trelloCreateSchema = z.object({
     desc: z.string().optional(),
     due: z.string().optional(),
     checklist: z.array(z.string()).optional(),
-});
+    checklist_name: z.string().optional(),
+    list_query: z.string().optional(),
+    label_query: z.union([z.array(z.string()), z.string()]).optional(),
+    priority: z.string().optional(),
+}).passthrough();
 
 const trelloListSchema = z.object({
     tipo: z.literal('trello_list'),
-});
+    list_query: z.string().optional(),
+}).passthrough();
 
 const trelloUpdateSchema = z.object({
     tipo: z.literal('trello_update'),
@@ -127,7 +132,7 @@ const trelloUpdateSchema = z.object({
     name: z.string().optional(),
     desc: z.string().optional(),
     due: z.string().optional(),
-});
+}).passthrough();
 
 const trelloMoveSchema = z.object({
     tipo: z.literal('trello_move'),
